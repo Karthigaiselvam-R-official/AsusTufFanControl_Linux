@@ -1,0 +1,12 @@
+[Unit]
+Description=Restore ASUS Battery Charge Limit
+After=sysinit.target
+After=asusd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/asus-battery-limit
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
