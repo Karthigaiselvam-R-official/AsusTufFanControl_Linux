@@ -103,7 +103,10 @@ void FanController::detectACPIMethods()
         "\\_SB_.PCI0.LPCB.EC0.VPC0.SFNV",
         "\\_SB.AMW0.SFNV",
         "\\_SB.PCI0.SBRG.EC0.FANC",
-        "\\_SB.PCI0.LPCB.EC0.FANC"
+        "\\_SB.PCI0.LPCB.EC0.FANC",
+        "\\_SB.PCI0.LPCB.EC0.FANL",
+        "\\_SB.PCI0.SBRG.EC0.FANL",
+        "\\_SB.PCI0.LPCB.EC.FANL"
     };
     
     m_acpiPaths.clear();
@@ -115,6 +118,10 @@ void FanController::detectACPIMethods()
         if (path.contains("SPLV")) {
             // For SPLV, test with a valid argument like 0xA (10)
             testCmd = QString("%1 0xA").arg(path);
+        } else if (path.contains("FANL")) {
+            // FANL is usually "Fan Level". Test with a safe value like 0 or 50.
+            // Often it takes 1 arg.
+            testCmd = QString("%1 50").arg(path); 
         } else if (path.contains("SFNV") || path.contains("FANC") || path.contains("ST98")) {
             // For SFNV/FANC/ST98, test with 0 0 (index 0, value 0)
             testCmd = QString("%1 0 0").arg(path);
@@ -189,7 +196,25 @@ bool FanController::setFanSpeedACPI(int percentage)
         if (result.contains("Error")) {
             success = false;
         }
+        if (result.contains("Error")) {
+            success = false;
+        }
     } 
+    // Handle FANL (Typical ASUS Fan Level)
+    else if (acpiPath.contains("FANL")) {
+        // FANL usually expects 0-100 or 0-255. 
+        // Given it's a "Level", let's assume 0-100 first? 
+        // Actually on ASUS N-series, FANL is often 0-255.
+        // Let's safe bet: 255 scale.
+        int val = static_cast<int>((percentage / 100.0) * 255);
+        if (percentage >= 100) val = 255;
+        if (percentage > 0 && val == 0) val = 1;
+
+        // FANL(Value) - Single Fan Control (usually controlling both tied together)
+        QString cmd = QString("%1 %2").arg(acpiPath).arg(val);
+        QString res = callACPI(cmd);
+        if (res.contains("Error")) success = false;
+    }
     // Handle Standard 0-255 methods (SFNV, FANL, etc.)
     else {
         // ASUS EC usually expects 0-255 for fan speed
@@ -241,41 +266,45 @@ void FanController::setFanSpeed(int percentage)
     
     bool success = false;
     
-    // STRATEGY 3: Thermal Policy (Limit Unlocker)
-    // CRITICAL: Force "Turbo" (1) when high speed is requested to unlock BIOS 6000 RPM limit
-    if (m_hasThermalPolicy) {
-        int policy = 0; // Balanced default
-        if (percentage > 75) policy = 1; // Turbo (Unlocks 6000 RPM)
-        
-        // Only change if needed to avoid constant disk writes
-        int currentPolicy = readIntFromFile(m_wmiBasePath + "/throttle_thermal_policy");
-        if (currentPolicy != policy) {
-             writeToSysfs(m_wmiBasePath + "/throttle_thermal_policy", policy);
-             qInfo() << "Switched Thermal Policy to" << (policy == 1 ? "Turbo (Unlock)" : "Balanced");
-        }
-    }
+    // REVISED STRATEGY: Smart Mode Mapper
+    // Hardware is locked, so we map slider to Thermal Policies (Performance Profiles).
+    // 0-33%   -> Silent (Policy 2)
+    // 34-66%  -> Balanced (Policy 0)
+    // 67-100% -> Turbo (Policy 1)
     
-    // REVERTED TO STABLE WMI STRATEGY
-    // Direct EC / ACPI methods failed to unlock 6000 RPM on this specific model.
-    // Fallback: Turbo Policy (Accesses max BIOS-allowed speed ~3500-4500 RPM).
-
     if (m_hasThermalPolicy) {
-        // For Manual Control, we generally want Turbo Policy (1) to unlock higher fans
-        // and prevent BIOS from auto-stopping fans at low temps (which happens in Balanced/Silent).
-        int targetPolicy = 1; // Default to Turbo for manual control
-        
-        if (percentage == 0) {
-            targetPolicy = 0; // Balanced/Silent allows 0 RPM effectively
+        int targetPolicy = 0; // Default to Balanced (Medium)
+
+        if (percentage < 34) {
+            targetPolicy = 2; // Silent
+        } else if (percentage < 67) {
+            targetPolicy = 0; // Balanced
+        } else {
+            targetPolicy = 1; // Turbo
         }
         
         int currentPolicy = readIntFromFile(m_wmiBasePath + "/throttle_thermal_policy");
         
+        // Write only if changed to avoid spamming WMI
         if (currentPolicy != targetPolicy) {
             writeToSysfs(m_wmiBasePath + "/throttle_thermal_policy", targetPolicy);
-            qInfo() << "Switched Thermal Policy to" << targetPolicy;
+            
+            QString modeName;
+            if (targetPolicy == 2) modeName = "Silent (0 RPM < 60°C)";
+            else if (targetPolicy == 0) modeName = "Balanced (0 RPM < 60°C)";
+            else modeName = "Turbo (Active Cooling)";
+            
+            qInfo() << "Switched Thermal Policy to" << modeName << "(" << targetPolicy << ")";
         }
         
-        setStatusMessage(QString("Profile: %1").arg(targetPolicy == 1 ? "Turbo" : "Standard"));
+        // Update UI Status
+        QString modeName;
+        if (targetPolicy == 2) modeName = "Silent (Absolute Quiet)";
+        else if (targetPolicy == 0) modeName = "Balanced (Starts > 60°C)";
+        else if (targetPolicy == 1) modeName = "Turbo (Always Active)";
+        else modeName = "Unknown Mode"; // Fallback
+        
+        setStatusMessage(QString("Mode: %1").arg(modeName));
         emit statsUpdated();
         success = true;
     }
@@ -310,65 +339,22 @@ void FanController::enforceManualMode()
     // This function is called every 1.5s by the timer.
     // It re-sends the command to overwrite BIOS auto-adjustments.
     if (m_manualMode) {
-        // Try to force Fan Boost Mode (Overboost) if available in WMI
-        // 0=Normal, 1=Overboost, 2=Silent. 1 usually means "Manual Limit Unlock" or "Max Speed".
-        if (m_hasThermalPolicy && QFile::exists(m_wmiBasePath + "/fan_boost_mode")) {
-             writeToSysfs(m_wmiBasePath + "/fan_boost_mode", 1);
-        }
+        // Enforce the Mode Selection
+        // This timer ensures the BIOS doesn't switch back to a "Default" mode automatically.
+        if (m_hasThermalPolicy) {
+            int targetPolicy = 0; // Default Balanced
+            
+            // Re-calculate target based on current slider value (m_currentFanSpeed)
+            if (m_currentFanSpeed <= 33) targetPolicy = 2;       // Silent
+            else if (m_currentFanSpeed <= 66) targetPolicy = 0;  // Balanced
+            else targetPolicy = 1;                              // Turbo
 
-        // Enforce Turbo Policy if high speed (prevents BIOS from switching back to Balanced)
-        if (m_hasThermalPolicy && m_currentFanSpeed > 75) {
-             int currentPolicy = readIntFromFile(m_wmiBasePath + "/throttle_thermal_policy");
-             if (currentPolicy != 1) {
-                 writeToSysfs(m_wmiBasePath + "/throttle_thermal_policy", 1);
-             }
+            int currentPolicy = readIntFromFile(m_wmiBasePath + "/throttle_thermal_policy");
+            if (currentPolicy != targetPolicy) {
+                writeToSysfs(m_wmiBasePath + "/throttle_thermal_policy", targetPolicy);
+                // qInfo() << "Re-enforcing Policy:" << targetPolicy;
+            }
         }
-        
-        // Ensure manual mode is enabled in hardware (PWM enable = 1)
-        if (!m_wmiHwmonPath.isEmpty()) {
-            writeToSysfs(m_wmiHwmonPath + "/pwm1_enable", 1);
-            writeToSysfs(m_wmiHwmonPath + "/pwm2_enable", 1);
-        }
-
-        // Try ACPI First (Most reliable for speed setting)
-        if (m_useACPICalls && !m_acpiPaths.isEmpty()) {
-            setFanSpeedACPI(m_currentFanSpeed);
-        }
-        
-        // ALSO Try PWM Write if available (Redundant but safe)
-        if (!m_wmiHwmonPath.isEmpty()) {
-            int pwmValue = static_cast<int>((m_currentFanSpeed / 100.0) * 255);
-            writeToSysfs(m_wmiHwmonPath + "/pwm1", pwmValue);
-            writeToSysfs(m_wmiHwmonPath + "/pwm2", pwmValue);
-        }
-             // Fallback Enforcement for EC (Ultra Shotgun)
-             int ecVal = static_cast<int>((m_currentFanSpeed / 100.0) * 255);
-             if (m_currentFanSpeed >= 100) ecVal = 255;
-             
-             // Enable bits
-             writeECRegister(0x5E, 0x01);
-             writeECRegister(0xAE, 0x01); 
-             writeECRegister(0x98, 0x01);
-             
-             // Speed writes (16-bit safe)
-             ecVal = static_cast<int>((m_currentFanSpeed / 100.0) * 255);
-             if (m_currentFanSpeed >= 100) ecVal = 255;
-             
-             writeECRegister(0xB0, ecVal);
-             writeECRegister(0xB1, ecVal);
-             
-             if (m_currentFanSpeed > 50) {
-                 int targetRPM = 2500 + (m_currentFanSpeed * 35);
-                 if (m_currentFanSpeed >= 100) targetRPM = 6000;
-                 
-                 int lowByte = targetRPM & 0xFF;
-                 int highByte = (targetRPM >> 8) & 0xFF;
-                 writeECRegister(0x90, lowByte);
-                 writeECRegister(0x91, highByte);
-             } else {
-                 writeECRegister(0x90, ecVal);
-                 writeECRegister(0x91, 0);
-             }
 
     }
     

@@ -127,6 +127,16 @@ private:
 
     QTimer *m_enforcementTimer;
     void enforceChargeLimit();
+
+    // Fix: Persist processes to avoid "Destroyed while running" warnings
+    QProcess *m_gpuProcess;
+    
+    // Fix: Debounce battery limit to prevent crashes during sliding
+    QTimer *m_limitDebounceTimer;
+    int m_pendingChargeLimit = -1;
+    
+private slots:
+    void applyPendingChargeLimit();
 };
 
 #endif // SYSTEMSTATSMONITOR_H

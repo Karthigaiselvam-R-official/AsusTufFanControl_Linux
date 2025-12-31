@@ -15,7 +15,15 @@ SystemStatsMonitor::SystemStatsMonitor(QObject *parent) : QObject(parent)
     m_enforcementTimer->setInterval(5000); 
     connect(m_enforcementTimer, &QTimer::timeout, this, &SystemStatsMonitor::enforceChargeLimit);
     m_enforcementTimer->start();
+
+    // 3. GPU Process Init
+    m_gpuProcess = new QProcess(this);
     
+    // 4. Debounce Timer Init
+    m_limitDebounceTimer = new QTimer(this);
+    m_limitDebounceTimer->setSingleShot(true);
+    m_limitDebounceTimer->setInterval(500); // Wait 500ms after last slide
+    connect(m_limitDebounceTimer, &QTimer::timeout, this, &SystemStatsMonitor::applyPendingChargeLimit);
 
 
 
@@ -59,6 +67,10 @@ SystemStatsMonitor::~SystemStatsMonitor()
     if (m_mtpThread) {
         m_mtpThread->quit();
         m_mtpThread->wait();
+    }
+    if (m_gpuProcess->state() != QProcess::NotRunning) {
+        m_gpuProcess->kill();
+        m_gpuProcess->waitForFinished(100);
     }
 }
 
@@ -154,19 +166,29 @@ void SystemStatsMonitor::readCpuUsage()
 
 void SystemStatsMonitor::readGpuStats()
 {
-    QProcess process;
-    // Query Clock AND Utilization
-    process.start("nvidia-smi", QStringList() << "--query-gpu=clocks.gr,utilization.gpu" << "--format=csv,noheader,nounits");
-    if (process.waitForFinished(200)) { // Reduced timeout for responsiveness
-        QString output = process.readAllStandardOutput().trimmed();
-        // format: "clock, utilization"
-        QStringList parts = output.split(",");
-        if (parts.length() >= 2) {
-             m_gpuFreq = parts[0].trimmed().toDouble();
-             m_gpuUsage = parts[1].trimmed().toDouble();
-        } else if (parts.length() == 1) {
-             m_gpuFreq = parts[0].trimmed().toDouble();
-        }
+    // Avoid re-entry if process is stuck or running
+    if (m_gpuProcess->state() != QProcess::NotRunning) return;
+
+    // Use member process to avoid "Destroyed while running"
+    m_gpuProcess->start("nvidia-smi", QStringList() << "--query-gpu=clocks.gr,utilization.gpu" << "--format=csv,noheader,nounits");
+    
+    // We connect to finished signal ideally, but to keep existing logic structure:
+    if (m_gpuProcess->waitForFinished(200)) { // Reduced timeout
+         QString output = m_gpuProcess->readAllStandardOutput().trimmed();
+         if (output.isEmpty()) return;
+         
+         QStringList parts = output.split(",");
+         if (parts.length() >= 2) {
+              m_gpuFreq = parts[0].trimmed().toDouble();
+              m_gpuUsage = parts[1].trimmed().toDouble();
+         } else if (parts.length() == 1) {
+              m_gpuFreq = parts[0].trimmed().toDouble();
+         }
+    } else {
+        // If timed out, kill it so next cycle is fresh. 
+        // This stops it from lingering and causing the warning when we destroy a local object.
+        m_gpuProcess->kill();
+        // No wait needed here, we just kill and ignore.
     }
 }
 
@@ -463,9 +485,27 @@ int SystemStatsMonitor::readChargeLimit() {
 }
 
 void SystemStatsMonitor::setChargeLimit(int limit) {
-    if (limit < 20) limit = 20; // Safety floor
+    if (limit < 20) limit = 20; 
     if (limit > 100) limit = 100;
+
+    // Debounce Logic:
+    // 1. Store the desired limit
+    m_pendingChargeLimit = limit;
     
+    // 2. Restart the timer (resets the 500ms countdown)
+    m_limitDebounceTimer->start();
+    
+    // 3. Optimistic UI update?
+    // User expects UI to react. We can set m_chargeLimit here OR wait.
+    // Setting it here makes UI responsive.
+    m_chargeLimit = limit;
+    emit chargeLimitChanged();
+}
+
+void SystemStatsMonitor::applyPendingChargeLimit() {
+    int limit = m_pendingChargeLimit;
+    if (limit < 20 || limit > 100) return;
+
     // Path to battery threshold file
     QString batPath = "/sys/class/power_supply/BAT1/charge_control_end_threshold";
     if (!QFile::exists(batPath)) {
@@ -501,9 +541,6 @@ void SystemStatsMonitor::setChargeLimit(int limit) {
     }
 
     if (success) {
-        m_chargeLimit = limit;
-        emit chargeLimitChanged();
-        
         // Persist to Robust System Service Config
         QFile conf("/etc/asus_battery_limit.conf");
         if (conf.open(QIODevice::WriteOnly | QIODevice::Text)) {

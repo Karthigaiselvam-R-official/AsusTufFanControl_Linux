@@ -176,7 +176,32 @@ systemctl enable asus-fan-prepare.service
 
 echo "✓ Startup service created"
 
-echo "[7/7] Building Qt application..."
+echo "[7/8] Installing Desktop Integration..."
+
+# Create installation directory
+INSTALL_DIR="/opt/asus-tuf-fan-control"
+mkdir -p "$INSTALL_DIR"
+
+# Copy polkit policy
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$SCRIPT_DIR/org.asus.fancontrol.policy" ]; then
+    cp "$SCRIPT_DIR/org.asus.fancontrol.policy" /usr/share/polkit-1/actions/
+    echo "✓ Polkit policy installed"
+fi
+
+# Copy desktop file
+if [ -f "$SCRIPT_DIR/asus-tuf-fan-control.desktop" ]; then
+    cp "$SCRIPT_DIR/asus-tuf-fan-control.desktop" /usr/share/applications/
+    echo "✓ Desktop launcher installed"
+fi
+
+# Copy app icon
+if [ -f "$SCRIPT_DIR/ui/app_icon.png" ]; then
+    cp "$SCRIPT_DIR/ui/app_icon.png" "$INSTALL_DIR/"
+    echo "✓ Application icon installed"
+fi
+
+echo "[8/8] Building Qt application..."
 
 # Note: User should build the Qt app in their project directory
 echo ""
@@ -191,7 +216,11 @@ echo "3. Build the application:"
 echo "   mkdir build && cd build"
 echo "   cmake .."
 echo "   make"
-echo "4. Run with sudo: sudo ./AsusF15FanControl"
+echo "4. Install the binary:"
+echo "   sudo cp AsusTufFanControl_Linux /opt/asus-tuf-fan-control/"
+echo ""
+echo "5. Launch from Applications menu or run:"
+echo "   /opt/asus-tuf-fan-control/AsusTufFanControl_Linux"
 echo ""
 echo "To test EC access right now:"
 echo "  sudo ec_probe read 0"

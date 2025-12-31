@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<policyconfig>
+  <vendor>ASUS TUF Fan Control</vendor>
+  <vendor_url>https://github.com/Karthigaiselvam-R-official/AsusTufFanControl_Linux</vendor_url>
+  <icon_name>asus-tuf-fan-control</icon_name>
+  
+  <action id="org.asus.fancontrol.run">
+    <description>Run ASUS TUF Fan Control</description>
+    <description xml:lang="en">Run ASUS TUF Fan Control with elevated privileges</description>
+    <message>Authentication is required to control system hardware (Fan, Battery, RGB)</message>
+    <message xml:lang="en">Authentication is required to control system hardware (Fan, Battery, RGB)</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/opt/asus-tuf-fan-control/AsusTufFanControl_Linux</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

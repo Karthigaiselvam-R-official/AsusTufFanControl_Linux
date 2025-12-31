@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=ASUS TUF Fan Control
+GenericName=System Control Utility
+Comment=Control fan speed, battery limit, and RGB lighting for ASUS Gaming Laptops
+Exec=pkexec /opt/asus-tuf-fan-control/AsusTufFanControl_Linux
+Icon=/opt/asus-tuf-fan-control/app_icon.png
+Terminal=false
+Type=Application
+Categories=System;Settings;HardwareSettings;
+Keywords=asus;tuf;rog;fan;battery;rgb;gaming;
+StartupNotify=true

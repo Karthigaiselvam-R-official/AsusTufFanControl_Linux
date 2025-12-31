@@ -247,6 +247,16 @@ Item {
                             }
                         }
                     }
+                    
+                    // Passive Cooling Indicator
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: backend.cpuFanRpm === 0 && fanSlider.value < 66 && backend.isManualModeActive
+                        text: "PASSIVE (0 dB)"
+                        color: theme.textTertiary
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
+                    }
                 }
                 
                 // Divider
@@ -297,6 +307,16 @@ Item {
                             }
                         }
                     }
+
+                    // Passive Cooling Indicator
+                    Text {
+                        Layout.alignment: Qt.AlignHCenter
+                        visible: backend.gpuFanRpm === 0 && fanSlider.value < 66 && backend.isManualModeActive
+                        text: "PASSIVE (0 dB)"
+                        color: theme.textTertiary
+                        font.pixelSize: 11
+                        font.weight: Font.Bold
+                    }
                 }
             }
         }
@@ -306,8 +326,7 @@ Item {
         // ══════════════════════════════════════════════════════════════
         Rectangle {
             Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.preferredHeight: 330 // Match height with gauges
+            Layout.preferredHeight: controlColumn.implicitHeight + 56 // Auto-fit content + padding
             color: Qt.rgba(theme.surface.r, theme.surface.g, theme.surface.b, 0.85)
             radius: 16
             border.width: 1
@@ -377,7 +396,7 @@ Item {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: backend.isManualModeActive ? backend.enableAutoMode() : backend.setFanSpeed(50)
+                            onClicked: backend.isManualModeActive ? backend.enableAutoMode() : backend.setFanSpeed(0) // Start in Silent mode
                         }
                     }
                 }
@@ -622,6 +641,86 @@ Item {
                                 if (!enabled) return;
                                 fanSlider.value = modelData.v
                                 backend.setFanSpeed(modelData.v)
+                            }
+
+                        }
+                    }
+                }
+
+                
+                // Status Message Display (Premium Dynamic Pill)
+                Item {
+                    Layout.fillWidth: true
+                    height: 54
+                    Layout.topMargin: 12
+                    
+                    Rectangle {
+                        id: statusPill
+                        anchors.centerIn: parent
+                        width: statusUiRow.implicitWidth + 48
+                        height: 44
+                        radius: 22
+                        
+                        // Dynamic Mode Icon (matches buttons)
+                        property string modeIcon: {
+                            if (fanSlider.value < 34) return "○"  // Silent
+                            if (fanSlider.value < 67) return "◐"  // Balanced
+                            return "●"  // Turbo
+                        }
+                        
+                        // Dynamic Color Logic
+                        property color activeColor: {
+                            if (fanSlider.value < 34) return "#2ecc71" // Silent Green
+                            if (fanSlider.value < 67) return "#f39c12" // Balanced Orange
+                            return "#e74c3c" // Turbo Red
+                        }
+                        
+                        // Gradient darker shade
+                        property color darkColor: Qt.darker(activeColor, 1.15)
+
+                        // Gradient Background
+                        gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0.0; color: backend.isManualModeActive ? statusPill.activeColor : "transparent" }
+                            GradientStop { position: 1.0; color: backend.isManualModeActive ? statusPill.darkColor : "transparent" }
+                        }
+                        
+                        // Subtle inner border for depth
+                        border.width: backend.isManualModeActive ? 1 : 0
+                        border.color: Qt.lighter(activeColor, 1.3)
+                        
+                        // Animate appearance
+                        opacity: backend.isManualModeActive ? 1.0 : 0.0
+                        scale: backend.isManualModeActive ? 1.0 : 0.95
+                        
+                        Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
+                        Behavior on border.color { ColorAnimation { duration: 200 } }
+                        
+                        RowLayout {
+                            id: statusUiRow
+                            anchors.centerIn: parent
+                            spacing: 10
+                            
+                            // Dynamic Mode Icon
+                            Text {
+                                text: statusPill.modeIcon
+                                color: "white"
+                                font.pixelSize: 16
+                                font.bold: true
+                                visible: backend.isManualModeActive
+                                Layout.alignment: Qt.AlignVCenter
+                            }
+                            
+                            // Status Text
+                            Text {
+                                text: backend.statusMessage
+                                color: "white"
+                                font.pixelSize: 14
+                                font.weight: Font.DemiBold
+                                font.letterSpacing: 0.3
+                                visible: backend.isManualModeActive
+                                Layout.alignment: Qt.AlignVCenter
                             }
                         }
                     }
