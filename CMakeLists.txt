@@ -24,6 +24,8 @@ set(PROJECT_SOURCES
         src/MtpWorker.h
         src/AuraController.cpp
         src/AuraController.h
+        src/FanCurveController.cpp
+        src/FanCurveController.h
         resources.qrc
 )
 
