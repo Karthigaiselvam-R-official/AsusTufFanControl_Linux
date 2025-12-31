@@ -234,6 +234,15 @@ int AuraController::getSystemBrightness() {
 QString AuraController::formatColor(const QString &hex) {
     QString c = hex;
     if (c.startsWith("#")) c.remove(0, 1);
+    
+    // Security Fix: Validate that string contains only Hex characters
+    // This prevents argument injection if 'hex' contained shell characters
+    static const QRegularExpression hexRegex("^[0-9a-fA-F]{0,6}$");
+    if (!hexRegex.match(c).hasMatch()) {
+        qWarning() << "Security Warning: Invalid color format received:" << hex << "- Defaulting to red";
+        return "ff0000";
+    }
+
     while (c.length() < 6) c.prepend("0");
     return c;
 }
