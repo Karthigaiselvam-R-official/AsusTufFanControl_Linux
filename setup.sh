@@ -33,7 +33,10 @@ apt-get install -y \
     i2c-tools
 
 echo "[2/7] Building ec_probe tool..."
-cd /tmp
+# Security Fix: Use mktemp -d to prevent symlink attacks in /tmp
+WORK_DIR=$(mktemp -d)
+cd "$WORK_DIR"
+echo "Working in secure temp directory: $WORK_DIR"
 
 # Download and build ec_probe if not exists
 if [ ! -f /bin/ec_probe ]; then
