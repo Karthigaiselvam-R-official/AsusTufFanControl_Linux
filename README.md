@@ -9,6 +9,7 @@
 ![Framework](https://img.shields.io/badge/Qt6-41CD52?style=for-the-badge&logo=qt&logoColor=white)
 ![Build](https://img.shields.io/badge/CMake-064F8C?style=for-the-badge&logo=cmake&logoColor=white)
 ![License](https://img.shields.io/badge/License-GPLv3-blue?style=for-the-badge)
+![Translations](https://img.shields.io/badge/Translations-22_Languages-orange?style=for-the-badge&logo=google-translate&logoColor=white)
 
 **A powerful system control utility for ASUS Gaming Laptops on Linux**
 
@@ -88,6 +89,12 @@ Intelligent temperature-based fan management that automatically switches between
 - Responsive sidebar navigation
 - Built with Qt6/QML
 
+### 🌍 Global Language Support
+- Fully translated into **22 languages** including:
+  **Tamil**, Bengali, Spanish, French, German, Chinese, Japanese, Korean, Russian, Portuguese, Italian, Arabic, Turkish, Hindi, and more.
+- Automatic system language detection
+- Right-to-Left (RTL) layout support (Arabic, Farsi, Urdu)
+
 ---
 
 ## �️ Supported Hardware
@@ -133,7 +140,8 @@ sudo ./setup.sh
 ### 3️⃣ Build the Application
 ```bash
 mkdir build && cd build
-cmake ..
+cmake .. 
+# (This automatically runs patch_translations.py to ensure all languages are up to date)
 make -j$(nproc)
 ```
 
