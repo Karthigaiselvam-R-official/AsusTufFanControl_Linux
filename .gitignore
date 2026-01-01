@@ -27,6 +27,13 @@ Thumbs.db
 /tmp/
 features.txt
 
+
 # Analysis/Debug files (not for production)
 analyze_dsdt.py
 ec_state_*.txt
+
+# Local Dev Scratchpads
+roadmap.txt
+sources_list.txt
+generate_translations.py
+

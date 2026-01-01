@@ -132,7 +132,7 @@ Item {
                             }
                              Text { 
                                 visible: monitor.isCharging
-                                text: "(Charging)"
+                                text: qsTr("(Charging)")
                                 color: theme.textSecondary
                                 font.pixelSize: 12
                                 Layout.alignment: Qt.AlignVCenter
@@ -219,40 +219,44 @@ Item {
                 
                 GraphCard {
                     Layout.fillWidth: true; Layout.preferredHeight: 160
-                    title: "CPU USAGE"
+                    title: qsTr("CPU USAGE")
+                    icon: "⚡"
                     suffix: "%"
                     currentValue: monitor.cpuUsage.toFixed(1)
-                    extraText: "History"
+                    extraText: qsTr("History")
                     dataModel: cpuHistory
                     maxValue: 100
                     graphColor: theme.accent // Revert to Blue
                 }
                  GraphCard {
                     Layout.fillWidth: true; Layout.preferredHeight: 160
-                    title: "GPU USAGE"
+                    title: qsTr("GPU USAGE")
+                    icon: "🎮"
                     suffix: "%"
                     currentValue: monitor.gpuUsage.toFixed(1)
-                    extraText: "History"
+                    extraText: qsTr("History")
                     dataModel: gpuHistory
                     maxValue: 100
                     graphColor: "#448aff" 
                 }
                 GraphCard {
                     Layout.fillWidth: true; Layout.preferredHeight: 160
-                    title: "RAM USAGE"
+                    title: qsTr("RAM USAGE")
+                    icon: "💾"
                     suffix: "%"
                     currentValue: monitor.memoryUsage.toFixed(1)
-                    extraText: "System Memory"
+                    extraText: qsTr("System Memory")
                     dataModel: ramHistory
                     maxValue: 100
                     graphColor: "#00bfa5" 
                 }
                 GraphCard {
                     Layout.fillWidth: true; Layout.preferredHeight: 160
-                    title: "NETWORK"
+                    title: qsTr("NETWORK")
+                    icon: "🌐"
                     suffix: ""
                     currentValue: formatNet(monitor.netDown)
-                    extraText: "Up: " + formatNet(monitor.netUp)
+                    extraText: qsTr("Up: ") + formatNet(monitor.netUp)
                     dataModel: netDownHistory
                     maxValue: 1000 
                     autoScale: true
@@ -314,8 +318,8 @@ Item {
                         
                         ColumnLayout {
                             spacing: 2
-                            Text { text: "Storage Overview"; color: theme.textPrimary; font.bold: true; font.pixelSize: 18 }
-                            Text { text: monitor.diskPartitions.length + " drives detected"; color: theme.textTertiary; font.pixelSize: 12 }
+                            Text { text: qsTr("Storage Overview"); color: theme.textPrimary; font.bold: true; font.pixelSize: 18 }
+                            Text { text: monitor.diskPartitions.length + " " + qsTr("drives detected"); color: theme.textTertiary; font.pixelSize: 12 }
                         }
                         Item { Layout.fillWidth: true }
                     }
@@ -393,7 +397,7 @@ Item {
                                             visible: modelData.hasUsage
                                             width: usedBadge.width + 14; height: 22; radius: 11
                                             color: theme.isDark ? Qt.rgba(168,85,247,0.15) : Qt.rgba(168,85,247,0.1)
-                                            Text { id: usedBadge; anchors.centerIn: parent; text: Number(modelData.used).toFixed(1) + " GB used"; color: "#a855f7"; font.pixelSize: 11; font.bold: true }
+                                            Text { id: usedBadge; anchors.centerIn: parent; text: Number(modelData.used).toFixed(1) + " " + qsTr("GB used"); color: "#a855f7"; font.pixelSize: 11; font.bold: true }
                                         }
                                         
                                         // Free space badge - green (mounted only)
@@ -401,7 +405,7 @@ Item {
                                             visible: modelData.hasUsage
                                             width: freeBadge.width + 14; height: 22; radius: 11
                                             color: theme.isDark ? Qt.rgba(16,185,129,0.15) : Qt.rgba(16,185,129,0.1)
-                                            Text { id: freeBadge; anchors.centerIn: parent; text: Number(modelData.free).toFixed(1) + " GB free"; color: "#10b981"; font.pixelSize: 11; font.bold: true }
+                                            Text { id: freeBadge; anchors.centerIn: parent; text: Number(modelData.free).toFixed(1) + " " + qsTr("GB free"); color: "#10b981"; font.pixelSize: 11; font.bold: true }
                                         }
                                     }
                                     
@@ -435,7 +439,7 @@ Item {
                                     // Row 3: Percentage text (mounted only)
                                     Text {
                                         visible: modelData.hasUsage
-                                        text: Math.round(modelData.usage) + "% of storage used"
+                                        text: Math.round(modelData.usage) + "% " + qsTr("of storage used")
                                         color: modelData.usage > 90 ? "#ff4444" : (modelData.usage > 70 ? "#ffa500" : theme.textSecondary)
                                         font.pixelSize: 11
                                     }
@@ -445,7 +449,7 @@ Item {
                                         visible: !modelData.hasUsage
                                         spacing: 8
                                         Rectangle { width: 8; height: 8; radius: 4; color: "#f59e0b" }
-                                        Text { text: "Drive not mounted"; color: "#f59e0b"; font.pixelSize: 12 }
+                                        Text { text: qsTr("Drive not mounted"); color: "#f59e0b"; font.pixelSize: 12 }
                                     }
                                 }
                             }

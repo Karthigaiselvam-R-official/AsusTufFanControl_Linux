@@ -5,10 +5,17 @@
 
 SystemStatsMonitor::SystemStatsMonitor(QObject *parent) : QObject(parent)
 {
+    // Main stats timer - 0.5 second for instant UI (safe now due to async GPU)
     m_timer = new QTimer(this);
-    m_timer->setInterval(500); // 0.5 second update (Fast response)
+    m_timer->setInterval(500);  // 0.5s update for snappy USB/Graph response
     connect(m_timer, &QTimer::timeout, this, &SystemStatsMonitor::updateStats);
     m_timer->start();
+    
+    // Slow timer for heavy I/O operations (disk, network) - every 2 seconds
+    m_slowTimer = new QTimer(this);
+    m_slowTimer->setInterval(2000);  // 2s backup poll
+    connect(m_slowTimer, &QTimer::timeout, this, &SystemStatsMonitor::updateSlowStats);
+    m_slowTimer->start();
     
     // Enforcement Timer (5 seconds loop)
     m_enforcementTimer = new QTimer(this);
@@ -16,8 +23,10 @@ SystemStatsMonitor::SystemStatsMonitor(QObject *parent) : QObject(parent)
     connect(m_enforcementTimer, &QTimer::timeout, this, &SystemStatsMonitor::enforceChargeLimit);
     m_enforcementTimer->start();
 
-    // 3. GPU Process Init
+    // 3. GPU Process Init - async to avoid blocking
     m_gpuProcess = new QProcess(this);
+    connect(m_gpuProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &SystemStatsMonitor::onGpuProcessFinished);
     
     // 4. Debounce Timer Init
     m_limitDebounceTimer = new QTimer(this);
@@ -59,18 +68,26 @@ SystemStatsMonitor::SystemStatsMonitor(QObject *parent) : QObject(parent)
         }
     }
     
+    // Initial updates
+    m_cachedVolumeCount = QStorageInfo::mountedVolumes().count();
     updateStats();
+    updateSlowStats();  // Disk info on startup
 }
 
 SystemStatsMonitor::~SystemStatsMonitor()
 {
     if (m_mtpThread) {
         m_mtpThread->quit();
-        m_mtpThread->wait();
+        m_mtpThread->wait(1000);  // Max 1 second wait
     }
-    if (m_gpuProcess->state() != QProcess::NotRunning) {
-        m_gpuProcess->kill();
-        m_gpuProcess->waitForFinished(100);
+    if (m_gpuProcess) {
+        if (m_gpuProcess->state() != QProcess::NotRunning) {
+            m_gpuProcess->terminate();  // Graceful first
+            if (!m_gpuProcess->waitForFinished(500)) {
+                m_gpuProcess->kill();  // Force kill if graceful fails
+                m_gpuProcess->waitForFinished(100);
+            }
+        }
     }
 }
 
@@ -78,13 +95,29 @@ SystemStatsMonitor::~SystemStatsMonitor()
 
 void SystemStatsMonitor::updateStats()
 {
+    // Fast stats only - lightweight sysfs reads
     readCpuFreq();
     readMemoryUsage();
     readCpuUsage();
-    readGpuStats();
+    readGpuStats();  // Now async, won't block
+    readBattery();
+    // Fast Check for Disk Changes (Instant USB Detection)
+    // QStorageInfo::mountedVolumes reads /proc/mounts (very fast).
+    // If count changes, we trigger full disk scan immediately.
+    auto currentVols = QStorageInfo::mountedVolumes();
+    if (currentVols.count() != m_cachedVolumeCount) {
+        m_cachedVolumeCount = currentVols.count();
+        updateSlowStats(); // Trigger heavy scan immediately!
+    }
+
+    emit statsChanged();
+}
+
+// Slow stats - heavy I/O operations (disk, network)
+void SystemStatsMonitor::updateSlowStats()
+{
     readDiskUsage();
     readNetworkUsage();
-    readBattery();
     emit statsChanged();
 }
 
@@ -166,30 +199,29 @@ void SystemStatsMonitor::readCpuUsage()
 
 void SystemStatsMonitor::readGpuStats()
 {
-    // Avoid re-entry if process is stuck or running
+    // Async GPU query - doesn't block UI thread
     if (m_gpuProcess->state() != QProcess::NotRunning) return;
-
-    // Use member process to avoid "Destroyed while running"
-    m_gpuProcess->start("nvidia-smi", QStringList() << "--query-gpu=clocks.gr,utilization.gpu" << "--format=csv,noheader,nounits");
     
-    // We connect to finished signal ideally, but to keep existing logic structure:
-    if (m_gpuProcess->waitForFinished(200)) { // Reduced timeout
-         QString output = m_gpuProcess->readAllStandardOutput().trimmed();
-         if (output.isEmpty()) return;
-         
-         QStringList parts = output.split(",");
-         if (parts.length() >= 2) {
-              m_gpuFreq = parts[0].trimmed().toDouble();
-              m_gpuUsage = parts[1].trimmed().toDouble();
-         } else if (parts.length() == 1) {
-              m_gpuFreq = parts[0].trimmed().toDouble();
-         }
-    } else {
-        // If timed out, kill it so next cycle is fresh. 
-        // This stops it from lingering and causing the warning when we destroy a local object.
-        m_gpuProcess->kill();
-        // No wait needed here, we just kill and ignore.
+    m_gpuProcess->start("nvidia-smi", QStringList() << "--query-gpu=clocks.gr,utilization.gpu" << "--format=csv,noheader,nounits");
+    // Result handled in onGpuProcessFinished() - no blocking wait!
+}
+
+void SystemStatsMonitor::onGpuProcessFinished(int exitCode, QProcess::ExitStatus status)
+{
+    Q_UNUSED(status);
+    if (exitCode != 0) return;
+    
+    QString output = m_gpuProcess->readAllStandardOutput().trimmed();
+    if (output.isEmpty()) return;
+    
+    QStringList parts = output.split(",");
+    if (parts.length() >= 2) {
+        m_gpuFreq = parts[0].trimmed().toDouble();
+        m_gpuUsage = parts[1].trimmed().toDouble();
+    } else if (parts.length() == 1) {
+        m_gpuFreq = parts[0].trimmed().toDouble();
     }
+    emit statsChanged();
 }
 
 // --- Disk Usage Logic ---
@@ -285,17 +317,17 @@ void SystemStatsMonitor::readDiskUsage()
                  if (user.isEmpty()) user = qgetenv("USER");
                  
                  if (user.isEmpty() || user == "root") {
-                     user = "System";
+                     user = tr("System");
                  } else {
                      user[0] = user[0].toUpper();
                  }
                  displayName = user;
              }
-             else if (mp == "/home") displayName = "Home";
+             else if (mp == "/home") displayName = tr("Home");
              else displayName = mp.section('/', -1);
-             if (displayName.isEmpty()) displayName = "Volume";
+             if (displayName.isEmpty()) displayName = tr("Volume");
         } else {
-            displayName = "Local Disk"; 
+            displayName = tr("Local Disk"); 
         }
         
         QVariantMap p;
@@ -449,11 +481,11 @@ void SystemStatsMonitor::readSystemInfo() {
                 }
             }
         }
-        if (m_gpuModels.isEmpty()) m_gpuModels.append("Generic GPU");
+        if (m_gpuModels.isEmpty()) m_gpuModels.append(tr("Generic GPU"));
 
     } else {
         qDebug() << "lspci timed out or failed";
-        m_gpuModels.append("GPU Detection Failed");
+        m_gpuModels.append(tr("GPU Detection Failed"));
     }
 }
 

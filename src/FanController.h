@@ -5,6 +5,8 @@
 #include <QString>
 #include <QStringList>
 #include <QTimer>
+#include <QProcess>
+#include <QProcess>
 
 class FanController : public QObject
 {
@@ -80,8 +82,22 @@ private:
     bool writeECRegister(int reg, int value);
     
     // Internal Logic
+    // Internal Logic
     void setStatusMessage(const QString &msg);
     void enforceManualMode(); // Called by timer to fight BIOS auto-control
+    
+    // Cached Stats (Async Updates)
+    int m_cachedCpuFanRpm = 0;
+    int m_cachedGpuFanRpm = 0;
+    int m_cachedCpuTemp = 0;
+    int m_cachedGpuTemp = 0;
+    
+    QTimer *m_statsTimer;
+    QProcess *m_gpuProcess;
+
+private slots:
+    void updateStats();
+    void onGpuProcessFinished(int exitCode, QProcess::ExitStatus status);
 };
 
 #endif // FANCONTROLLER_H

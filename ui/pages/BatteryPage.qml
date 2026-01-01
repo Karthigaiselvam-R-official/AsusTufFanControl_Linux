@@ -161,14 +161,14 @@ Item {
                     spacing: 4
                     Layout.alignment: Qt.AlignVCenter
                     Text {
-                        text: "BATTERY MANAGEMENT"
+                        text: qsTr("BATTERY MANAGEMENT")
                         color: "#2ecc71"
                         font.pixelSize: 22
                         font.weight: Font.Bold
                         font.letterSpacing: 2
                     }
                     Text {
-                        text: monitor.isCharging ? "Charging • " + monitor.batteryPercent + "%" : "On Battery • " + monitor.batteryPercent + "%"
+                        text: monitor.isCharging ? qsTr("Charging") + " • " + monitor.batteryPercent + "%" : qsTr("On Battery") + " • " + monitor.batteryPercent + "%"
                         color: monitor.isCharging ? Qt.rgba(0, 217/255, 165/255, 0.9) : Qt.rgba(255/255, 152/255, 0, 0.8)
                         font.pixelSize: 12
                         font.letterSpacing: 0.5
@@ -179,7 +179,7 @@ Item {
                 
                 // Status Badge
                 Rectangle {
-                    Layout.preferredWidth: statusRow.width + 28
+                    Layout.preferredWidth: Math.max(120, statusRow.implicitWidth + 30) // Adaptive
                     Layout.preferredHeight: 34
                     radius: 17
                     color: monitor.isCharging ? Qt.rgba(46/255, 204/255, 113/255, 0.15) : Qt.rgba(255/255, 152/255, 0/255, 0.15)
@@ -204,7 +204,7 @@ Item {
                             }
                         }
                         Text {
-                            text: monitor.isCharging ? "CHARGING" : "DISCHARGING"
+                            text: monitor.isCharging ? qsTr("CHARGING") : qsTr("DISCHARGING")
                             color: monitor.isCharging ? "#2ecc71" : "#FF9800"
                             font.pixelSize: 11
                             font.bold: true
@@ -305,7 +305,7 @@ Item {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.bottom: parent.bottom
-                        text: monitor.isCharging ? "Charging" : "Battery"
+                        text: monitor.isCharging ? qsTr("Charging") : qsTr("Battery")
                         color: theme ? theme.textSecondary : "#888"
                         font.pixelSize: 12
                         font.bold: true
@@ -322,7 +322,7 @@ Item {
                     ColumnLayout {
                         spacing: 4
                         Text {
-                            text: "CURRENT LEVEL"
+                            text: qsTr("CURRENT LEVEL")
                             color: theme ? theme.textTertiary : "#888"
                             font.pixelSize: 10
                             font.letterSpacing: 1
@@ -340,7 +340,7 @@ Item {
                     ColumnLayout {
                         spacing: 4
                         Text {
-                            text: "CHARGE LIMIT"
+                            text: qsTr("CHARGE LIMIT")
                             color: theme ? theme.textTertiary : "#888"
                             font.pixelSize: 10
                             font.letterSpacing: 1
@@ -358,15 +358,21 @@ Item {
                     ColumnLayout {
                         spacing: 4
                         Text {
-                            text: "STATUS"
+                            text: qsTr("STATUS")
                             color: theme ? theme.textTertiary : "#888"
                             font.pixelSize: 10
                             font.letterSpacing: 1
                             font.bold: true
                         }
                         Text {
-                            text: monitor.batteryState
-                            color: theme ? theme.textPrimary : "#fff"
+                            text: {
+                                var s = monitor.batteryState
+                                if (s === "Discharging") return qsTr("Discharging")
+                                if (s === "Charging") return qsTr("Charging")
+                                if (s === "Full") return qsTr("Full")
+                                if (s === "Not charging") return qsTr("Not charging")
+                                return s
+                            }                            color: theme ? theme.textPrimary : "#fff"
                             font.pixelSize: 16
                             font.bold: true
                         }
@@ -376,17 +382,22 @@ Item {
                     ColumnLayout {
                         spacing: 4
                         Text {
-                            text: "HEALTH MODE"
+                            text: qsTr("HEALTH MODE")
                             color: theme ? theme.textTertiary : "#888"
                             font.pixelSize: 10
                             font.letterSpacing: 1
                             font.bold: true
                         }
                         Text {
-                            text: monitor.chargeLimit < 100 ? "ENABLED" : "DISABLED"
+                            text: monitor.chargeLimit < 100 ? qsTr("ENABLED") : qsTr("DISABLED")
                             color: monitor.chargeLimit < 100 ? "#2ecc71" : "#FF9800"
                             font.pixelSize: 16
                             font.bold: true
+                            
+                            // Adaptive text
+                            width: parent.width
+                            fontSizeMode: Text.Fit
+                            minimumPixelSize: 11
                         }
                     }
                 }
@@ -419,14 +430,14 @@ Item {
                     ColumnLayout {
                         spacing: 2
                         Text {
-                            text: "CHARGE LIMIT"
+                            text: qsTr("CHARGE LIMIT")
                             color: "#3498db"
                             font.bold: true
                             font.pixelSize: 16
                             font.letterSpacing: 1.5
                         }
                         Text {
-                            text: "Limit charging to extend battery lifespan"
+                            text: qsTr("Limit charging to extend battery lifespan")
                             color: theme ? theme.textTertiary : "#888"
                             font.pixelSize: 12
                         }
@@ -456,7 +467,7 @@ Item {
                             Text {
                                 id: labelText
                                 anchors.centerIn: parent
-                                text: "Custom"
+                                text: qsTr("Custom")
                                 color: customLabelMouse.containsMouse ? "white" : (theme ? theme.textSecondary : "#aaa")
                                 font.pixelSize: 13
                                 font.bold: true
@@ -551,7 +562,7 @@ Item {
                                             if (val < 60 && text.length > 0) {
                                                 validationMsg.text = "Minimum 60%"
                                             } else if (val > 100) {
-                                                validationMsg.text = "Maximum 100%"
+                                                validationMsg.text = qsTr("Maximum 100%")
                                             } else {
                                                 validationMsg.text = ""
                                             }
@@ -706,9 +717,9 @@ Item {
                     
                     Repeater {
                         model: [
-                            { label: "60%", value: 60, desc: "Max Lifespan" },
-                            { label: "80%", value: 80, desc: "Recommended" },
-                            { label: "100%", value: 100, desc: "Full Capacity" }
+                            { label: "60%", value: 60, desc: qsTr("Max Lifespan") },
+                            { label: "80%", value: 80, desc: qsTr("Recommended") },
+                            { label: "100%", value: 100, desc: qsTr("Full Capacity") }
                         ]
                         
                         property string btnColor: "#2ecc71"
@@ -775,7 +786,7 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     Layout.topMargin: 8
-                    text: "💡 Limiting charge to 60-80% can significantly extend your battery's total lifespan, ideal for laptops that stay plugged in."
+                    text: "💡 " + qsTr("Limiting charge to 60-80% can significantly extend your battery's total lifespan, ideal for laptops that stay plugged in.")
                     color: theme ? theme.textTertiary : "#888"
                     font.pixelSize: 11
                     wrapMode: Text.WordWrap

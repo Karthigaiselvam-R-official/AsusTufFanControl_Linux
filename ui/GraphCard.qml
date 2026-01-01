@@ -4,6 +4,7 @@ import QtQuick.Layouts 1.15
 Rectangle {
     id: root
     property string title: "Graph"
+    property string icon: ""
     property string suffix: "%"
     property var dataModel: [] // Array of values 0-100
     property string currentValue: "0"
@@ -71,9 +72,7 @@ Rectangle {
                     
                     Text {
                         anchors.centerIn: parent
-                        text: root.title === "CPU USAGE" ? "⚡" : 
-                              root.title === "GPU USAGE" ? "🎮" :
-                              root.title === "RAM USAGE" ? "💾" : "🌐"
+                        text: root.icon
                         font.pixelSize: 16
                     }
                 }

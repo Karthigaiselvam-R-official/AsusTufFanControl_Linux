@@ -15,9 +15,22 @@ FanController::FanController(QObject *parent)
       m_hasThermalPolicy(false),
       m_useDirectEC(false),
       m_acpiMethod(""),
-      m_enforcementTimer(nullptr)
+      m_enforcementTimer(nullptr),
+      m_statsTimer(nullptr),
+      m_gpuProcess(nullptr)
 {
-    setStatusMessage("Initializing...");
+    setStatusMessage(tr("Initializing..."));
+    
+    // Async GPU Process
+    m_gpuProcess = new QProcess(this);
+    connect(m_gpuProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, &FanController::onGpuProcessFinished);
+
+    // Stats Timer (1s) - Decouples I/O from Render Loop
+    m_statsTimer = new QTimer(this);
+    m_statsTimer->setInterval(1000);
+    connect(m_statsTimer, &QTimer::timeout, this, &FanController::updateStats);
+    m_statsTimer->start();
     
     // Timer to enforce manual mode if BIOS tries to take over
     m_enforcementTimer = new QTimer(this);
@@ -30,6 +43,17 @@ FanController::FanController(QObject *parent)
 
 FanController::~FanController()
 {
+    // Ensure GPU process is stopped before destruction
+    if (m_gpuProcess) {
+        if (m_gpuProcess->state() != QProcess::NotRunning) {
+            m_gpuProcess->terminate();
+            if (!m_gpuProcess->waitForFinished(500)) {
+                m_gpuProcess->kill();
+                m_gpuProcess->waitForFinished(100);
+            }
+        }
+    }
+
     // Safety measure: Always revert to Auto mode when closing
     enableAutoMode();
 }
@@ -66,21 +90,21 @@ bool FanController::initializeController()
     }
 
     if (m_useACPICalls && !m_acpiPaths.isEmpty()) {
-        setStatusMessage("Ready - Using Direct ACPI Control");
+        setStatusMessage(tr("Ready - Using Direct ACPI Control"));
         return true;
     } else if (m_hasPWMControl) {
-        setStatusMessage("Ready - Using WMI PWM Control");
+        setStatusMessage(tr("Ready - Using WMI PWM Control"));
         return true;
     } else if (m_hasThermalPolicy) {
-        setStatusMessage("Ready - Using Thermal Policy");
+        setStatusMessage(tr("Ready - Using Thermal Policy"));
         return true;
     } else if (m_useDirectEC) {
-        setStatusMessage("Ready - Using Direct EC Injection (Driverless)");
+        setStatusMessage(tr("Ready - Using Direct EC Injection (Driverless)"));
         return true;
     }
 
     
-    setStatusMessage("Error: No fan control methods found. Run with sudo?");
+    setStatusMessage(tr("Error: No fan control methods found. Run with sudo?"));
     return false;
 }
 
@@ -299,12 +323,12 @@ void FanController::setFanSpeed(int percentage)
         
         // Update UI Status
         QString modeName;
-        if (targetPolicy == 2) modeName = "Silent (Absolute Quiet)";
-        else if (targetPolicy == 0) modeName = "Balanced (Starts > 60°C)";
-        else if (targetPolicy == 1) modeName = "Turbo (Always Active)";
-        else modeName = "Unknown Mode"; // Fallback
+        if (targetPolicy == 2) modeName = tr("Silent (Absolute Quiet)");
+        else if (targetPolicy == 0) modeName = tr("Balanced (Starts > 60°C)");
+        else if (targetPolicy == 1) modeName = tr("Turbo (Always Active)");
+        else modeName = tr("Unknown Mode"); // Fallback
         
-        setStatusMessage(QString("Mode: %1").arg(modeName));
+        setStatusMessage(tr("Mode: %1").arg(modeName));
         emit statsUpdated();
         success = true;
     }
@@ -528,51 +552,85 @@ void FanController::setStatusMessage(const QString &msg)
 
 int FanController::getCpuFanRpm()
 {
-    // Try WMI path first, then generic path
-    if (!m_wmiHwmonPath.isEmpty()) {
-        int val = readIntFromFile(m_wmiHwmonPath + "/fan1_input");
-        if (val > 0) return val;
-    }
-    return readIntFromFile(m_rpmPath + "/fan1_input");
+    return m_cachedCpuFanRpm;
 }
 
 int FanController::getGpuFanRpm()
 {
-    if (!m_wmiHwmonPath.isEmpty()) {
-        int val = readIntFromFile(m_wmiHwmonPath + "/fan2_input");
-        if (val > 0) return val;
-    }
-    return readIntFromFile(m_rpmPath + "/fan2_input");
+    return m_cachedGpuFanRpm;
 }
 
 int FanController::getCpuTemp()
 {
-    if (m_tempPath.isEmpty()) return 0;
-    // hwmon temp is usually in millidegrees C
-    return readIntFromFile(m_tempPath + "/temp1_input") / 1000;
+    return m_cachedCpuTemp;
 }
 
 int FanController::getGpuTemp()
 {
-    // Optimized: Direct Sysfs read instead of nvidia-smi
+    return m_cachedGpuTemp;
+}
+
+void FanController::updateStats()
+{
+    // 1. CPU Fan RPM
+    // Try WMI path first (more reliable on TUF)
+    int rpm = 0;
+    if (!m_wmiHwmonPath.isEmpty()) {
+        rpm = readIntFromFile(m_wmiHwmonPath + "/fan1_input");
+    }
+    // Fallback to generic ASUS sensor
+    if (rpm <= 0 && !m_rpmPath.isEmpty()) {
+        rpm = readIntFromFile(m_rpmPath + "/fan1_input");
+    }
+    m_cachedCpuFanRpm = rpm;
+
+    // 2. GPU Fan RPM
+    int gpuRpm = 0;
+    if (!m_wmiHwmonPath.isEmpty()) {
+        gpuRpm = readIntFromFile(m_wmiHwmonPath + "/fan2_input");
+    }
+    if (gpuRpm <= 0 && !m_rpmPath.isEmpty()) {
+        gpuRpm = readIntFromFile(m_rpmPath + "/fan2_input");
+    }
+    m_cachedGpuFanRpm = gpuRpm;
+
+    // 3. CPU Temp
+    if (!m_tempPath.isEmpty()) {
+        m_cachedCpuTemp = readIntFromFile(m_tempPath + "/temp1_input") / 1000;
+    }
+
+    // 4. GPU Temp (Async or File)
+    bool gpuRead = false;
     if (!m_gpuTempPath.isEmpty()) {
-        // Try standard temp1_input
-        int temp = readIntFromFile(m_gpuTempPath + "/temp1_input");
-        if (temp > 0) return temp / 1000;
+        int t = readIntFromFile(m_gpuTempPath + "/temp1_input"); 
+        if (t <= 0) t = readIntFromFile(m_gpuTempPath + "/temp");
         
-        // Fallback: Some NVIDIA cards use a different file
-        temp = readIntFromFile(m_gpuTempPath + "/temp"); // Some older kernels
-        if (temp > 0) return temp / 1000;
+        if (t > 0) {
+            m_cachedGpuTemp = t / 1000;
+            gpuRead = true;
+        }
     }
     
-    // Fallback: nvidia-smi if installed (for Nvidia GPU)
-    QProcess proc;
-    proc.start("nvidia-smi", QStringList() << "--query-gpu=temperature.gpu" << "--format=csv,noheader,nounits");
-    proc.waitForFinished(1000);
-    
-    if (proc.exitCode() == 0) {
-        return proc.readAllStandardOutput().trimmed().toInt();
+    // If file read failed, try nvidia-smi ASYNC
+    if (!gpuRead && m_gpuProcess) {
+        if (m_gpuProcess->state() == QProcess::NotRunning) {
+            m_gpuProcess->start("nvidia-smi", QStringList() << "--query-gpu=temperature.gpu" << "--format=csv,noheader,nounits");
+        }
     }
     
-    return 0;
+    emit statsUpdated();
+}
+
+void FanController::onGpuProcessFinished(int exitCode, QProcess::ExitStatus status)
+{
+    Q_UNUSED(status);
+    if (exitCode == 0) {
+        QString out = m_gpuProcess->readAllStandardOutput().trimmed();
+        bool ok;
+        int val = out.toInt(&ok);
+        if (ok) {
+            m_cachedGpuTemp = val;
+            emit statsUpdated(); // Notify change immediately
+        }
+    }
 }

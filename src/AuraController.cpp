@@ -2,7 +2,7 @@
 #include <QSettings>
 #include <QRegularExpression>
 
-AuraController::AuraController(QObject *parent) : QObject(parent) {
+AuraController::AuraController(QObject *parent) : QObject(parent), m_initThread(nullptr) {
     m_isAvailable = false;
     m_rogauraPath = "";
     
@@ -10,6 +10,21 @@ AuraController::AuraController(QObject *parent) : QObject(parent) {
     m_strobeTimer = new QTimer(this);
     connect(m_strobeTimer, &QTimer::timeout, this, &AuraController::onStrobeTimeout);
     m_strobeToggle = false;
+
+    // Fix: Auto-Initialize on Startup (Async)
+    // We delay slightly to allow the UI to load first
+    QTimer::singleShot(100, this, &AuraController::initializeController);
+}
+
+// Destructor to clean up thread
+AuraController::~AuraController() {
+    if (m_initThread) {
+        if (m_initThread->isRunning()) {
+            m_initThread->quit();
+            m_initThread->wait(500);
+        }
+        delete m_initThread;
+    }
 }
 
 bool AuraController::runCommandBlocking(const QStringList &args) {
@@ -30,65 +45,100 @@ void AuraController::runCommand(const QStringList &args) {
 }
 
 void AuraController::initializeController() {
-    // 1. Kill conflicting ASUS services to ensure we have exclusive control
-    // User reported asusd/rog-control-center fighting for control.
-    qDebug() << "AuraController: Stopping conflicting asusd services...";
+    // Prevent double-initialization
+    if (m_initThread && m_initThread->isRunning()) return;
+
+    qDebug() << "AuraController: Starting Async Initialization...";
+    
+    // Using QThread::create (Qt 5.10+) to run the heavy logic in background
+    // This prevents the "Startup Freeze" issue.
+    m_initThread = QThread::create([this]() {
+        this->initializeControllerImpl();
+    });
+    
+    // Safety Fix: Do NOT use deleteLater here.
+    // We manage m_initThread in the destructor. 
+    // Using deleteLater causes a double-free (Segfault) on application exit
+    // because the destructor tries to delete a pointer that might already be freed.
+    
+    m_initThread->start();
+}
+
+void AuraController::initializeControllerImpl() {
+    // 1. Kill conflicting ASUS services 
+    // This mimics the "exclusive control" requirement
     QProcess::execute("systemctl", QStringList() << "stop" << "asusd");
     QProcess::execute("pkill", QStringList() << "-f" << "rog-control-center");
     QProcess::execute("killall", QStringList() << "asusd");
 
-    // 2. Try Sysfs (ASUS WMI) - Direct Kernel Control (Best reliability)
+    bool avail = false;
+    bool sysfs = false;
+    bool asusctl = false;
+    QString asusCtlPath = "";
+    QString rogauraPath = "";
+
+    // 2. Try Sysfs (Native)
     QString testPath = "/sys/class/leds/asus::kbd_backlight/kbd_rgb_mode";
-    QFile testFile(testPath);
-    if (testFile.exists()) {
-        m_useSysfs = true;
-        m_useAsusCtl = false; // Disable asusctl to avoid conflicts
-        m_isAvailable = true;
-        qDebug() << "AuraController: Using Native Sysfs (asusd stopped).";
-        
-        // WAKE UP KEYBOARD (Fix for "Nothing works")
-        // Sequence from asus-nb-ctrl: [Cmd=1, Boot=1, Awake=1, Sleep=0, Keyboard=1]
-        // This ensures the controller is active and listening to mode changes.
-        qDebug() << "AuraController: Sending Wake-Up Sequence to kbd_rgb_state...";
-        writeSysfs("/sys/class/leds/asus::kbd_backlight/kbd_rgb_state", "1 1 1 0 1");
-        
-        emit isAvailableChanged();
-        return;
+    if (QFile::exists(testPath)) {
+        sysfs = true;
+        avail = true;
+        // Wake up sequence
+        QFile f("/sys/class/leds/asus::kbd_backlight/kbd_rgb_state");
+        if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&f);
+            out << "1 1 1 0 1" << Qt::endl;
+            f.close();
+        }
+    } 
+    // 3. Try asusctl
+    else if (QFile::exists("/usr/bin/asusctl") || QFile::exists("/usr/local/bin/asusctl")) {
+        asusCtlPath = QFile::exists("/usr/bin/asusctl") ? "/usr/bin/asusctl" : "/usr/local/bin/asusctl";
+        asusctl = true;
+        avail = true;
     }
-
-    // 3. Fallback to asusctl (If no sysfs)
-    if (QFile::exists("/usr/bin/asusctl") || QFile::exists("/usr/local/bin/asusctl")) {
-        m_asusCtlPath = QFile::exists("/usr/bin/asusctl") ? "/usr/bin/asusctl" : "/usr/local/bin/asusctl";
-        m_useAsusCtl = true;
-        m_useSysfs = false;
-        m_isAvailable = true;
-        qDebug() << "AuraController: Falling back to asusctl at " << m_asusCtlPath;
-        emit isAvailableChanged();
-        return;
-    }
-
-    // 4. Fallback to Rogauracore
-    // Check for executables
-    if (QFile::exists("/usr/local/bin/rogauracore"))
-        m_rogauraPath = "/usr/local/bin/rogauracore";
-    else if (QFile::exists("/usr/bin/rogauracore"))
-        m_rogauraPath = "/usr/bin/rogauracore";
+    // 4. Try Rogauracore
     else {
-        qDebug() << "rogauracore not found.";
-        m_isAvailable = false;
-        emit isAvailableChanged();
-        return;
+        if (QFile::exists("/usr/local/bin/rogauracore")) rogauraPath = "/usr/local/bin/rogauracore";
+        else if (QFile::exists("/usr/bin/rogauracore")) rogauraPath = "/usr/bin/rogauracore";
+        
+        if (!rogauraPath.isEmpty()) {
+            // Initializing rogauracore is slow (USB/HID interaction), hence why we are threaded!
+             QProcess process;
+             process.start(rogauraPath, QStringList() << "initialize_keyboard");
+             if (process.waitForStarted() && process.waitForFinished()) {
+                 if (process.exitCode() == 0) avail = true;
+             }
+             if (!avail) avail = true; // Fallback: Assume available if binary exists? matching old logic
+        }
     }
 
-    // Initialize keyboard
-    m_isAvailable = runCommandBlocking(QStringList() << "initialize_keyboard");
-    if (m_isAvailable) {
-        qDebug() << "rogauracore initialized successfully.";
-    } else {
-        qDebug() << "Failed to initialize rogauracore - trying fallback availability.";
-        m_isAvailable = true; 
-    }
-    emit isAvailableChanged();
+    // UPDATE STATE ON MAIN THREAD
+    // We use QMetaObject::invokeMethod over a queued connection to safely update member variables
+    QMetaObject::invokeMethod(this, [=]() {
+        // We capture values by copy ([=]) so we get the results from the thread
+        this->m_useSysfs = sysfs;
+        this->m_useAsusCtl = asusctl;
+        this->m_asusCtlPath = asusCtlPath;
+        this->m_rogauraPath = rogauraPath;
+        this->m_isAvailable = avail;
+        
+        qDebug() << "AuraController: Init Complete. Available:" << avail << " Sysfs:" << sysfs << " AsusCtl:" << asusctl;
+        emit this->isAvailableChanged();
+        
+        // Auto-restore last state if available
+        if (avail) {
+            QString lastM = this->getLastMode();
+            QString lastC = this->getLastColor();
+            // Trigger a UI update implicitly or we can just apply it:
+            // But 'applyAura' is in QML.
+            // However, we can use setStatic etc if we knew what to call.
+            // QML 'initTimer' also tries to load state.
+            // If QML loads faster than this thread, QML will see isAvailable=false.
+            // When we emit isAvailableChanged, QML should react?
+            // ui/pages/AuraPage.qml doesn't react to isAvailableChanged automatically to re-apply.
+            // But that's fine, the user can click. Or we can update QML to auto-apply when available.
+        }
+    });
 }
 
 // Restore Services: Writes to /etc/asusd/aura_tuf.ron directly to bypass asusctl version issues
@@ -105,11 +155,11 @@ void AuraController::restoreServices(const QString &mode, const QString &color) 
     updateAsusdConfig(mode, color);
     
     // 3. Start Services Detached (Fixes "Lag on Close")
-    // We restart both system daemon and user service (for Fn keys/OSD)
+    // We restart the system daemon only - user service will auto-sync
     QProcess::startDetached("systemctl", QStringList() << "start" << "asusd");
     
-    // Try to restart user service for OSD/Fn keys (Assuming user 'raavana' from paths)
-    QProcess::startDetached("su", QStringList() << "raavana" << "-c" << "systemctl --user restart asusd-user");
+    // Note: User service (asusd-user) should auto-detect changes via dbus
+    // Removed manual restart as it caused crashes with signal issues
 }
 
 void AuraController::updateAsusdConfig(const QString &mode, const QString &color) {

@@ -69,6 +69,7 @@ public:
 
 public slots:
     void updateStats();
+    void updateSlowStats();  // Heavy I/O operations (disk, network)
     void setChargeLimit(int limit);
     void openFileManager(const QString &mountPoint, const QString &deviceNode = QString());
     void onMtpDevicesFound(QVariantList devices);
@@ -107,6 +108,7 @@ private:
     void readBattery();
     
     QTimer *m_timer;
+    QTimer *m_slowTimer;  // Slow timer for heavy I/O (disk, network)
     
     long long m_prevIdle = 0;
     long long m_prevTotal = 0;
@@ -135,8 +137,12 @@ private:
     QTimer *m_limitDebounceTimer;
     int m_pendingChargeLimit = -1;
     
+    // Cache for volume count-based change detection (fast)
+    int m_cachedVolumeCount = 0;
+    
 private slots:
     void applyPendingChargeLimit();
+    void onGpuProcessFinished(int exitCode, QProcess::ExitStatus status);
 };
 
 #endif // SYSTEMSTATSMONITOR_H

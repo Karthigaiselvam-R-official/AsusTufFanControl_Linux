@@ -307,7 +307,7 @@ Rectangle {
                         }
                         
                         Text {
-                            text: root.showRpm ? "RPM" : "USAGE"
+                            text: root.showRpm ? qsTr("RPM") : qsTr("USAGE")
                             color: _textSecondary
                             font.pixelSize: _fontSizeTiny
                             font.weight: _fontWeightBold
@@ -337,7 +337,7 @@ Rectangle {
                         spacing: _space1
                         
                         Text {
-                            text: "TEMPERATURE"
+                            text: qsTr("TEMPERATURE")
                             color: _textTertiary
                             font.pixelSize: _fontSizeTiny
                             font.weight: _fontWeightBold
@@ -388,7 +388,7 @@ Rectangle {
                         spacing: _space1
                         
                         Text {
-                            text: "FREQUENCY"
+                            text: qsTr("FREQUENCY")
                             color: _textTertiary
                             font.pixelSize: _fontSizeTiny
                             font.weight: _fontWeightBold

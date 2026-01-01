@@ -16,12 +16,8 @@ Item {
     }
     
     // Timer to refresh stats (syncs with Dashboard)
-    Timer {
-        interval: 1000
-        running: true
-        repeat: true
-        onTriggered: backend.statsUpdated()
-    }
+    // Timer removed: FanController now pushes updates automatically via cache mechanism
+    // This eliminates UI thread blocking from repeated signal calls
 
     // Clean background - no floating orbs
     
@@ -134,18 +130,23 @@ Item {
                 ColumnLayout {
                     spacing: 4
                     Layout.alignment: Qt.AlignVCenter
+                    Layout.fillWidth: true 
                     Text {
-                        text: "FAN CONTROL"
+                        text: qsTr("FAN CONTROL")
                         color: theme ? theme.accent : "#0078d4"
                         font.pixelSize: 22
                         font.weight: Font.Bold
                         font.letterSpacing: 2
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
                     }
                     Text {
-                        text: backend.isManualModeActive ? "Manual Override Active" : "Automatic Mode"
+                        text: backend.isManualModeActive ? qsTr("Manual Override Active") : qsTr("Automatic Mode")
                         color: backend.isManualModeActive ? theme.accent : Qt.rgba(0, 180/255, 220/255, 0.8)
                         font.pixelSize: 12
                         font.letterSpacing: 0.5
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
                     }
                 }
                 
@@ -153,7 +154,8 @@ Item {
                 
                 // Status Badge
                 Rectangle {
-                    width: Math.max(100, statusRow.width + 24)
+                    // Adaptive Width: Fits content + padding, minimum 100
+                    Layout.preferredWidth: Math.max(100, statusRow.implicitWidth + 24)
                     height: 32
                     radius: 16
                     color: Qt.rgba(theme.accent.r, theme.accent.g, theme.accent.b, 0.15)
@@ -173,7 +175,7 @@ Item {
                         }
                         
                         Text {
-                            text: backend.isManualModeActive ? "MANUAL" : "AUTO"
+                            text: backend.isManualModeActive ? qsTr("MANUAL") : qsTr("AUTO")
                             color: theme.textSecondary
                             font.bold: true
                             font.pixelSize: 11
@@ -222,8 +224,8 @@ Item {
                         height: 220
                         value: backend.cpuFanRpm
                         maxValue: 6000
-                        text: backend.cpuFanRpm + " RPM"
-                        subText: "CPU FAN"
+                        text: backend.cpuFanRpm + " " + qsTr("RPM")
+                        subText: qsTr("CPU FAN")
                         progressColor: theme ? theme.accent : "#0078d4"
                         appTheme: theme
                     }
@@ -258,7 +260,7 @@ Item {
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         visible: backend.cpuFanRpm === 0 && fanSlider.value < 66 && backend.isManualModeActive
-                        text: "PASSIVE (0 dB)"
+                        text: qsTr("PASSIVE (0 dB)")
                         color: theme.textTertiary
                         font.pixelSize: 11
                         font.weight: Font.Bold
@@ -282,8 +284,8 @@ Item {
                         height: 220
                         value: backend.gpuFanRpm
                         maxValue: 6000
-                        text: backend.gpuFanRpm + " RPM"
-                        subText: "GPU FAN"
+                        text: backend.gpuFanRpm + " " + qsTr("RPM")
+                        subText: qsTr("GPU FAN")
                         progressColor: "#448aff"
                         appTheme: theme
                     }
@@ -318,7 +320,7 @@ Item {
                     Text {
                         Layout.alignment: Qt.AlignHCenter
                         visible: backend.gpuFanRpm === 0 && fanSlider.value < 66 && backend.isManualModeActive
-                        text: "PASSIVE (0 dB)"
+                        text: qsTr("PASSIVE (0 dB)")
                         color: theme.textTertiary
                         font.pixelSize: 11
                         font.weight: Font.Bold
@@ -355,14 +357,14 @@ Item {
                     ColumnLayout {
                         spacing: 2
                         Text { 
-                            text: "MANUAL MODE"
+                            text: qsTr("MANUAL MODE")
                             color: "#e74c3c"
                             font.bold: true
                             font.pixelSize: 15
                             font.letterSpacing: 1.5
                         }
                         Text {
-                            text: "Override automatic fan curves"
+                            text: qsTr("Override automatic fan curves")
                             color: theme.textTertiary
                             font.pixelSize: 11
                         }
@@ -442,7 +444,7 @@ Item {
                             Layout.fillWidth: true
                             
                             Text { 
-                                text: "Target Fan Speed"
+                                text: qsTr("Target Fan Speed")
                                 color: theme.textSecondary
                                 font.pixelSize: 13
                             }
@@ -451,11 +453,14 @@ Item {
                             
                             // Premium Value Badge
                             Rectangle {
-                                width: 70; height: 32
+                                // Adaptive width for value text
+                                Layout.preferredWidth: Math.max(70, valueText.implicitWidth + 20)
+                                height: 32
                                 radius: 8
                                 color: theme.accent
                                 
                                 Text {
+                                    id: valueText
                                     anchors.centerIn: parent
                                     text: fanSlider.value.toFixed(0) + "%"
                                     color: "white"
@@ -572,14 +577,15 @@ Item {
                     
                     Repeater {
                         model: [ 
-                            {l:"SILENT", v:0, icon:"○", c:"#2ecc71"}, 
-                            {l:"BALANCED", v:60, icon:"◐", c:"#f39c12"}, 
-                            {l:"TURBO", v:100, icon:"●", c:"#e74c3c"} 
+                            {l:qsTr("SILENT"), v:0, icon:"○", c:"#2ecc71"}, 
+                            {l:qsTr("BALANCED"), v:60, icon:"◐", c:"#f39c12"}, 
+                            {l:qsTr("TURBO"), v:100, icon:"●", c:"#e74c3c"} 
                         ]
                         
                         delegate: Button {
                             id: presetBtn
                             Layout.fillWidth: true
+                            Layout.preferredWidth: 1 // FORCE EQUAL WIDTHS (Ignore content implicit width)
                             Layout.preferredHeight: 60
                             
                             property bool isActive: fanSlider.value === modelData.v
@@ -649,7 +655,14 @@ Item {
                                     }
                                     font.bold: true
                                     font.pixelSize: 12
-                                    font.letterSpacing: 1.2
+                                    
+                                    // Adaptive Layout
+                                    width: presetBtn.width - 16
+                                    wrapMode: Text.Wrap
+                                    horizontalAlignment: Text.AlignHCenter
+                                    fontSizeMode: Text.Fit
+                                    minimumPixelSize: 8
+                                    maximumLineCount: 2
                                 }
                             }
                             
@@ -770,14 +783,14 @@ Item {
                     ColumnLayout {
                         spacing: 2
                         Text { 
-                            text: "AUTO FAN CURVE"
+                            text: qsTr("AUTO FAN CURVE")
                             color: "#27ae60"
                             font.bold: true
                             font.pixelSize: 15
                             font.letterSpacing: 1.5
                         }
                         Text {
-                            text: "Automatically adjust fan mode based on temperature"
+                            text: qsTr("Automatically adjust fan mode based on temperature")
                             color: theme.textTertiary
                             font.pixelSize: 11
                         }
@@ -872,7 +885,7 @@ Item {
                                 }
                                 
                                 Text {
-                                    text: "CPU: " + curveController.currentCpuTemp + "°C"
+                                    text: qsTr("CPU: ") + curveController.currentCpuTemp + "°C"
                                     color: theme.textPrimary
                                     font.pixelSize: 16
                                     font.bold: true
@@ -884,7 +897,7 @@ Item {
                                 }
                                 
                                 Text {
-                                    text: curveController.autoCurveEnabled ? curveController.currentAutoMode : "Auto Curve Off"
+                                    text: curveController.autoCurveEnabled ? qsTr(curveController.currentAutoMode) : qsTr("Auto Curve Off")
                                     color: {
                                         if (!curveController.autoCurveEnabled) return "#888"
                                         if (curveController.currentAutoMode === "Silent") return "#27ae60"
@@ -905,7 +918,7 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Text {
-                                    text: "Silent Mode (below)"
+                                    text: qsTr("Silent Mode (below)")
                                     color: "#27ae60"
                                     font.pixelSize: 13
                                     font.bold: true
@@ -988,7 +1001,7 @@ Item {
                             RowLayout {
                                 Layout.fillWidth: true
                                 Text {
-                                    text: "Turbo Mode (above)"
+                                    text: qsTr("Turbo Mode (above)")
                                     color: "#e74c3c"
                                     font.pixelSize: 13
                                     font.bold: true
@@ -1072,17 +1085,17 @@ Item {
                             Row {
                                 spacing: 6
                                 Rectangle { width: 12; height: 12; radius: 6; color: "#27ae60" }
-                                Text { text: "Silent < " + curveController.silentThreshold + "°C"; color: theme.textSecondary; font.pixelSize: 11 }
+                                Text { text: qsTr("Silent < ") + curveController.silentThreshold + "°C"; color: theme.textSecondary; font.pixelSize: 11 }
                             }
                             Row {
                                 spacing: 6
                                 Rectangle { width: 12; height: 12; radius: 6; color: "#f39c12" }
-                                Text { text: "Balanced " + curveController.silentThreshold + "-" + curveController.balancedThreshold + "°C"; color: theme.textSecondary; font.pixelSize: 11 }
+                                Text { text: qsTr("Balanced ") + curveController.silentThreshold + "-" + curveController.balancedThreshold + "°C"; color: theme.textSecondary; font.pixelSize: 11 }
                             }
                             Row {
                                 spacing: 6
                                 Rectangle { width: 12; height: 12; radius: 6; color: "#e74c3c" }
-                                Text { text: "Turbo > " + curveController.balancedThreshold + "°C"; color: theme.textSecondary; font.pixelSize: 11 }
+                                Text { text: qsTr("Turbo > ") + curveController.balancedThreshold + "°C"; color: theme.textSecondary; font.pixelSize: 11 }
                             }
                         }
                         
@@ -1095,12 +1108,15 @@ Item {
                             
                             // Presets Label Box with Icon (Colored)
                             Rectangle {
-                                width: 100; height: 36
+                                Layout.fillWidth: true
+                                Layout.preferredWidth: 1 // Equal width
+                                Layout.preferredHeight: 36
                                 radius: 8
                                 color: "#3498db"
                                 
-                                Row {
+                                RowLayout { // Use RowLayout for alignment
                                     anchors.centerIn: parent
+                                    width: parent.width - 10
                                     spacing: 6
                                     
                                     Text {
@@ -1109,26 +1125,36 @@ Item {
                                     }
                                     
                                     Text {
-                                        text: "Presets"
+                                        text: qsTr("Presets")
                                         color: "white"
                                         font.pixelSize: 12
                                         font.bold: true
+                                        
+                                        Layout.fillWidth: true
+                                        wrapMode: Text.Wrap
+                                        fontSizeMode: Text.Fit
+                                        minimumPixelSize: 8
+                                        maximumLineCount: 2
+                                        horizontalAlignment: Text.AlignHCenter
+                                        elide: Text.ElideRight
                                     }
                                 }
                             }
                             
                             // Preset Buttons
-                            Repeater {
+                                Repeater {
                                 model: [
-                                    { name: "Gaming", color: "#e74c3c" },
-                                    { name: "Balanced", color: "#f39c12" },
-                                    { name: "Quiet", color: "#27ae60" },
-                                    { name: "Performance", color: "#9b59b6" }
+                                    { name: qsTr("Gaming"), color: "#e74c3c" },
+                                    { name: qsTr("Balanced"), color: "#f39c12" },
+                                    { name: qsTr("Quiet"), color: "#27ae60" },
+                                    { name: qsTr("Performance"), color: "#9b59b6" }
                                 ]
                                 
                                 Rectangle {
-                                    id: presetBtn
-                                    width: 95; height: 36
+                                    id: bottomPresetBtn
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1 // Equal width
+                                    Layout.preferredHeight: 36
                                     radius: 18
                                     
                                     property color btnColor: modelData.color
@@ -1144,10 +1170,20 @@ Item {
                                     
                                     Text {
                                         anchors.centerIn: parent
+                                        // Strict Text Binding
+                                        width: parent.width - 16
                                         text: modelData.name
                                         color: presetMouse.containsMouse ? "white" : btnColor
                                         font.pixelSize: 12
                                         font.bold: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                        
+                                        wrapMode: Text.Wrap
+                                        fontSizeMode: Text.Fit
+                                        minimumPixelSize: 8
+                                        maximumLineCount: 2
+                                        elide: Text.ElideRight
                                         
                                         Behavior on color { ColorAnimation { duration: 150 } }
                                     }

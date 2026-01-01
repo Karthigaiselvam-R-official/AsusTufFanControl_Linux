@@ -13,7 +13,7 @@ ApplicationWindow {
     height: 800
     minimumWidth: 1000
     minimumHeight: 700
-    title: "ASUS TUF Fan Control"
+    title: qsTr("ASUS TUF Fan Control")
     color: theme.background
     
     // Restore Aura on close (logic remains)
@@ -106,14 +106,10 @@ ApplicationWindow {
     }
     
     // --- Backend (Global) ---
+    // Note: FanController auto-initializes in constructor, no need for Component.onCompleted
     FanController { id: backend }
     SystemStatsMonitor { id: monitor }
     AuraController { id: aura }
-    
-    // Init Backend
-    Component.onCompleted: {
-        backend.initializeController()
-    }
 
     // --- Layout ---
     RowLayout {

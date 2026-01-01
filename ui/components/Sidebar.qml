@@ -4,10 +4,11 @@ import QtQuick.Controls 2.15
 
 Rectangle {
     id: sidebar
-    width: 280
+    width: 320 // Widened for Russian/German support
     
     property int currentIndex: 0
-    property var menuItems: ["SYSTEM INFO", "FAN CONTROL", "AURA SYNC", "BATTERY"]
+    // i18n Fix: Use ListModel for dynamic translation instead of static array
+    property var menuItems: [qsTr("SYSTEM INFO"), qsTr("FAN CONTROL"), qsTr("AURA SYNC"), qsTr("BATTERY")]
     property var menuColors: ["#00bcd4", "#ff9800", "#9b59b6", "#2ecc71"]
     property var theme
     
@@ -121,7 +122,7 @@ Rectangle {
                         }
                         
                         Text {
-                            text: "CONTROLLER"
+                            text: qsTr("CONTROLLER")
                             color: theme.textTertiary
                             font.weight: Font.Bold
                             font.pixelSize: 10
@@ -383,6 +384,13 @@ Rectangle {
                         Layout.alignment: Qt.AlignVCenter
                         verticalAlignment: Text.AlignVCenter
                         
+                        // Adaptive Text
+                        wrapMode: Text.Wrap
+                        maximumLineCount: 2
+                        fontSizeMode: Text.Fit
+                        minimumPixelSize: 9 // Slightly smaller min size for wrapping
+                        elide: Text.ElideRight
+                        
                         Behavior on color { ColorAnimation { duration: 200 } }
                     }
                 }
@@ -452,7 +460,7 @@ Rectangle {
                     }
                     
                     Text {
-                        text: theme.isDark ? "Dark Mode" : "Light Mode"
+                        text: theme.isDark ? qsTr("Dark Mode") : qsTr("Light Mode")
                         color: themeToggle.hovered ? "#1a1a1a" : theme.textPrimary
                         font.pixelSize: 13
                         font.weight: Font.Bold

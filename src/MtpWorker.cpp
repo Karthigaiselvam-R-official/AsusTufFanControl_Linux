@@ -8,7 +8,7 @@ MtpWorker::MtpWorker(QObject *parent) : QObject(parent)
 void MtpWorker::start()
 {
     m_timer = new QTimer(this);
-    m_timer->setInterval(2000); // Scan every 2 seconds
+    m_timer->setInterval(1000); // Scan every 1 second (Faster mobile detection)
     connect(m_timer, &QTimer::timeout, this, &MtpWorker::scan);
     m_timer->start();
     

@@ -6,6 +6,8 @@
 #include <QFile>
 #include <QDebug>
 #include <QTimer>
+#include <QThread>
+#include <QMutex>
 
 class AuraController : public QObject {
     Q_OBJECT
@@ -13,6 +15,7 @@ class AuraController : public QObject {
 
 public:
     explicit AuraController(QObject *parent = nullptr);
+    ~AuraController() override;
 
     bool isAvailable() const { return m_isAvailable; }
 
@@ -38,6 +41,9 @@ private:
     void runCommand(const QStringList &args);
     bool runCommandBlocking(const QStringList &args);
     
+    // Async Init Helper
+    void initializeControllerImpl();
+    
 private slots:
     void onStrobeTimeout();
 
@@ -59,6 +65,10 @@ private:
     QTimer *m_strobeTimer;
     bool m_strobeToggle;
     QString m_strobeColor;
+
+    // Async Threading
+    QThread *m_initThread;
+    QMutex m_mutex;
 };
 
 #endif // AURACONTROLLER_H

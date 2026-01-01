@@ -344,19 +344,34 @@ Item {
                         spacing: 4
                         Layout.alignment: Qt.AlignVCenter
                         
-                        // RGB Gradient Title using Canvas
+                        // Adaptive RGB Gradient Title using Canvas
                         Canvas {
                             id: titleCanvas
-                            width: 140; height: 28
+                            // Adaptive Sizing: Start with default, but allow growing
+                            implicitWidth: Math.max(140, drawnTextWidth + 10) 
+                            height: 28
                             
                             property real hueShift: 0
+                            property real drawnTextWidth: 140 // Will be updated after measure
+                            property string titleText: qsTr("AURA SYNC")
                             
                             onPaint: {
                                 var ctx = getContext("2d");
                                 ctx.reset();
                                 ctx.font = "bold 22px sans-serif";
                                 
-                                // Create rainbow gradient for text
+                                // 1. Measure Text Width
+                                var metrics = ctx.measureText(titleCanvas.titleText);
+                                var textW = metrics.width;
+                                
+                                // 2. Update Canvas Width if needed (triggering re-layout)
+                                if (Math.abs(titleCanvas.drawnTextWidth - textW) > 1) {
+                                    titleCanvas.drawnTextWidth = textW;
+                                    // Note: changing property in onPaint usually safe if it doesn't trigger immediate repaint loop
+                                    // requestPaint() is called by hueShift animation anyway.
+                                }
+                                
+                                // 3. Create Gradient based on dynamic width
                                 var gradient = ctx.createLinearGradient(0, 0, width, 0);
                                 gradient.addColorStop(0, Qt.hsla((hueShift) % 1, 0.9, 0.65, 1));
                                 gradient.addColorStop(0.25, Qt.hsla((hueShift + 0.15) % 1, 0.9, 0.65, 1));
@@ -365,7 +380,7 @@ Item {
                                 gradient.addColorStop(1, Qt.hsla((hueShift + 0.6) % 1, 0.9, 0.65, 1));
                                 
                                 ctx.fillStyle = gradient;
-                                ctx.fillText("AURA SYNC", 0, 22);
+                                ctx.fillText(titleCanvas.titleText, 0, 22);
                             }
                             
                             NumberAnimation on hueShift {
@@ -374,12 +389,14 @@ Item {
                                 loops: Animation.Infinite
                             }
                             
+                            // Re-paint when text changes (Translation fallback)
+                            onTitleTextChanged: requestPaint()
                             onHueShiftChanged: requestPaint()
                             Component.onCompleted: requestPaint()
                         }
                         
                         Text {
-                            text: "RGB Keyboard Lighting Control"
+                            text: qsTr("RGB Keyboard Lighting Control")
                             color: Qt.rgba(168/255, 85/255, 247/255, 0.8)
                             font.pixelSize: 12
                             font.letterSpacing: 0.5
@@ -411,7 +428,7 @@ Item {
                                     NumberAnimation { from: 0.4; to: 1; duration: 800 }
                                 }
                             }
-                            Text { text: "Connected"; color: "#10b981"; font.bold: true; font.pixelSize: 12 }
+                            Text { text: qsTr("Connected"); color: "#10b981"; font.bold: true; font.pixelSize: 12 }
                         }
                     }
                     
@@ -453,7 +470,7 @@ Item {
                                     ctx.closePath(); ctx.fill();
                                 }
                             }
-                            Text { text: "LIGHTING MODE"; color: theme.textSecondary; font.bold: true; font.pixelSize: 12; font.letterSpacing: 1.5 }
+                            Text { text: qsTr("LIGHTING MODE"); color: theme.textSecondary; font.bold: true; font.pixelSize: 12; font.letterSpacing: 1.5 }
                         }
                         
                         // Mode buttons grid
@@ -463,13 +480,17 @@ Item {
                             
                             Repeater {
                                 model: [
-                                    { name: "Static", icon: "●" },
-                                    { name: "Breathing", icon: "◐" },
-                                    { name: "Rainbow", icon: "◎" },
-                                    { name: "Strobing", icon: "※" }
+                                    { name: "Static", displayName: qsTr("Static"), icon: "●" },
+                                    { name: "Breathing", displayName: qsTr("Breathing"), icon: "◐" },
+                                    { name: "Rainbow", displayName: qsTr("Rainbow"), icon: "◎" },
+                                    { name: "Strobing", displayName: qsTr("Strobing"), icon: "※" }
                                 ]
                                 delegate: Rectangle {
+                                    // Delegate ID needed for referencing width
+                                    id: modeDelegate
+
                                     Layout.fillWidth: true
+                                    Layout.preferredWidth: 1 // FORCE EQUAL WIDTHS
                                     height: 55
                                     radius: 12
                                     color: isActive ? theme.accent : (modeHover.containsMouse ? theme.accent : "transparent")
@@ -492,6 +513,7 @@ Item {
                                     
                                     RowLayout {
                                         anchors.centerIn: parent
+                                        width: parent.width - 20 // Constrain Layout width to container
                                         spacing: 8
                                         
                                         Text {
@@ -499,13 +521,26 @@ Item {
                                             font.pixelSize: 16
                                             color: isActive || modeHover.containsMouse ? "#ffffff" : theme.accent
                                             font.bold: true
+                                            Layout.alignment: Qt.AlignVCenter
                                         }
                                         Text {
-                                            text: modelData.name
+                                            text: modelData.displayName
                                             color: isActive || modeHover.containsMouse ? "#ffffff" : theme.textPrimary
                                             font.bold: true
                                             font.pixelSize: 13
+                                            
+                                            // Safe Adaptive Text Sizing
+                                            Layout.fillWidth: true
+                                            Layout.maximumWidth: modeDelegate.width - 50 // Explicitly reference delegate width
+                                            wrapMode: Text.Wrap
+                                            maximumLineCount: 2
+                                            horizontalAlignment: Text.AlignLeft
+                                            verticalAlignment: Text.AlignVCenter
+                                            fontSizeMode: Text.Fit
+                                            minimumPixelSize: 8
+                                            elide: Text.ElideRight 
                                         }
+
                                     }
                                 }
                             }
@@ -515,66 +550,7 @@ Item {
                     // Divider
                     Rectangle { Layout.fillWidth: true; height: 1; color: theme.isDark ? Qt.rgba(255,255,255,0.06) : Qt.rgba(0,0,0,0.06) }
                     
-                    // ===== INITIALIZE SECTION (Always Visible) =====
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 16
-                        
-                        Canvas {
-                            width: 14; height: 14
-                            onPaint: {
-                                var ctx = getContext("2d");
-                                ctx.strokeStyle = "#22c55e"; ctx.lineWidth = 2;
-                                ctx.beginPath(); ctx.arc(7, 7, 5, 0, Math.PI * 2); ctx.stroke();
-                                ctx.beginPath(); ctx.moveTo(7, 4); ctx.lineTo(7, 7); ctx.lineTo(10, 7); ctx.stroke();
-                            }
-                        }
-                        Text { text: "APPLY LIGHTING"; color: theme.textSecondary; font.bold: true; font.pixelSize: 12; font.letterSpacing: 1.5 }
-                        
-                        Item { Layout.fillWidth: true }
-                        
-                        // Initialize button - Premium gradient style
-                        Rectangle {
-                            width: 130; height: 38; radius: 19
-                            
-                            gradient: Gradient {
-                                orientation: Gradient.Horizontal
-                                GradientStop { position: 0.0; color: initHover.containsMouse ? "#22c55e" : "#16a34a" }
-                                GradientStop { position: 1.0; color: initHover.containsMouse ? "#10b981" : "#059669" }
-                            }
-                            
-                            scale: initHover.containsMouse ? 1.05 : 1.0
-                            Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                            
-                            MouseArea {
-                                id: initHover
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: { aura.initializeController(); applyAura() }
-                            }
-                            
-                            Row {
-                                anchors.centerIn: parent
-                                spacing: 8
-                                Canvas {
-                                    width: 16; height: 16
-                                    onPaint: {
-                                        var ctx = getContext("2d");
-                                        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2.5; ctx.lineCap = "round";
-                                        ctx.beginPath(); ctx.moveTo(3, 8); ctx.lineTo(6, 12); ctx.lineTo(13, 4); ctx.stroke();
-                                    }
-                                }
-                                Text { 
-                                    text: "Initialize"
-                                    color: "#ffffff"
-                                    font.bold: true
-                                    font.pixelSize: 14
-                                    font.letterSpacing: 1
-                                }
-                            }
-                        }
-                    }
+                    // Initialize Button Removed (Auto-Init Implemented)
                     
                     // ===== COLOR SELECTION SECTION =====
                     ColumnLayout {
@@ -592,7 +568,7 @@ Item {
                                     ctx.beginPath(); ctx.moveTo(7, 0); ctx.lineTo(14, 7); ctx.lineTo(7, 14); ctx.lineTo(0, 7); ctx.closePath(); ctx.fill();
                                 }
                             }
-                            Text { text: "COLOR SELECTION"; color: theme.textSecondary; font.bold: true; font.pixelSize: 12; font.letterSpacing: 1.5 }
+                            Text { text: qsTr("COLOR SELECTION"); color: theme.textSecondary; font.bold: true; font.pixelSize: 12; font.letterSpacing: 1.5 }
                             Item { Layout.fillWidth: true }
                             
                             // Current color preview
@@ -756,7 +732,7 @@ Item {
                                     ctx.beginPath(); ctx.arc(6, 8, 4, 0, Math.PI * 2); ctx.fill();
                                 }
                             }
-                            Text { text: "CONTROLS"; color: theme.textSecondary; font.bold: true; font.pixelSize: 12; font.letterSpacing: 1.5 }
+                            Text { text: qsTr("CONTROLS"); color: theme.textSecondary; font.bold: true; font.pixelSize: 12; font.letterSpacing: 1.5 }
                         }
                         
                         RowLayout {
@@ -789,7 +765,7 @@ Item {
                                                 ctx.beginPath(); ctx.arc(7, 7, 5, 0, Math.PI * 2); ctx.stroke();
                                             }
                                         }
-                                        Text { text: "SPEED"; color: theme.textSecondary; font.bold: true; font.pixelSize: 11 }
+                                        Text { text: qsTr("SPEED"); color: theme.textSecondary; font.bold: true; font.pixelSize: 11 }
                                     }
                                     
                                     // Segmented buttons for speed
@@ -798,7 +774,7 @@ Item {
                                         spacing: 8
                                         
                                         Repeater {
-                                            model: [{ val: 1, label: "Slow" }, { val: 2, label: "Medium" }, { val: 3, label: "Fast" }]
+                                            model: [{ val: 1, label: qsTr("Slow") }, { val: 2, label: qsTr("Medium") }, { val: 3, label: qsTr("Fast") }]
                                             delegate: Rectangle {
                                                 Layout.fillWidth: true
                                                 height: 36
@@ -862,7 +838,7 @@ Item {
                                                 }
                                             }
                                         }
-                                        Text { text: "BRIGHTNESS"; color: theme.textSecondary; font.bold: true; font.pixelSize: 11 }
+                                        Text { text: qsTr("BRIGHTNESS"); color: theme.textSecondary; font.bold: true; font.pixelSize: 11 }
                                     }
                                     
                                     // Segmented buttons for brightness
@@ -871,7 +847,7 @@ Item {
                                         spacing: 8
                                         
                                         Repeater {
-                                            model: [{ val: 0, label: "Off" }, { val: 1, label: "Low" }, { val: 2, label: "Med" }, { val: 3, label: "High" }]
+                                            model: [{ val: 0, label: qsTr("Off") }, { val: 1, label: qsTr("Low") }, { val: 2, label: qsTr("Med") }, { val: 3, label: qsTr("High") }]
                                             delegate: Rectangle {
                                                 Layout.fillWidth: true
                                                 height: 36
