@@ -126,6 +126,7 @@ Rectangle {
                 
                 // Subtle grid lines
                 Canvas {
+                    id: gridCanvas
                     anchors.fill: parent
                     onPaint: {
                         var ctx = getContext("2d")
@@ -148,10 +149,13 @@ Rectangle {
                 Canvas {
                     id: graph
                     anchors.fill: parent
-                    contextType: "2d"
+                    // NOTE: Do NOT set contextType here. In Qt6, contextType causes
+                    // `context` to be null on the first paint cycle, silently skipping
+                    // all rendering. Use getContext("2d") inside onPaint instead.
                     
                     onPaint: {
-                        var ctx = context;
+                        var ctx = getContext("2d");
+                        if (!ctx) return; // Safety: skip if context not ready
                         ctx.clearRect(0, 0, width, height);
                         
                         if (root.dataModel.length < 2) return;
@@ -280,5 +284,8 @@ Rectangle {
         }
     }
     
-    onDataModelChanged: graph.requestPaint()
+    onDataModelChanged: {
+        graph.requestPaint()
+        gridCanvas.requestPaint()
+    }
 }
