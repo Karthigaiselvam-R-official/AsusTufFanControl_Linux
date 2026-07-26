@@ -26,13 +26,18 @@ Item {
         onTriggered: {
             backend.statsUpdated(); // Fetch backend temps
             
-            // Push values to history
-            var rh = ramHistory; rh.push(monitor.memoryUsage); if(rh.length>60) rh.shift(); ramHistory = rh;
-            var dh = diskHistory; dh.push(monitor.diskUsage); if(dh.length>60) dh.shift(); diskHistory = dh;
-            var th = tempHistory; th.push(backend.cpuTemp); if(th.length>60) th.shift(); tempHistory = th;
-            var nd = netDownHistory; nd.push(monitor.netDown); if(nd.length>60) nd.shift(); netDownHistory = nd;
-            var ch = cpuHistory; ch.push(monitor.cpuUsage); if(ch.length>60) ch.shift(); cpuHistory = ch;
-            var gh = gpuHistory; gh.push(monitor.gpuUsage); if(gh.length>60) gh.shift(); gpuHistory = gh;
+            // CRITICAL: Use .slice() to create a NEW array reference on every update.
+            // Without this, `var x = someHistory` copies the reference (not the data),
+            // and `someHistory = x` assigns the SAME reference back.
+            // QML compares property values by reference for arrays — identical ref = no
+            // change signal = onDataModelChanged never fires = requestPaint() never called
+            // = blank graphs. .slice() creates a shallow copy with a new identity.
+            var rh = ramHistory.slice(); rh.push(monitor.memoryUsage); if(rh.length>60) rh.shift(); ramHistory = rh;
+            var dh = diskHistory.slice(); dh.push(monitor.diskUsage); if(dh.length>60) dh.shift(); diskHistory = dh;
+            var th = tempHistory.slice(); th.push(backend.cpuTemp); if(th.length>60) th.shift(); tempHistory = th;
+            var nd = netDownHistory.slice(); nd.push(monitor.netDown); if(nd.length>60) nd.shift(); netDownHistory = nd;
+            var ch = cpuHistory.slice(); ch.push(monitor.cpuUsage); if(ch.length>60) ch.shift(); cpuHistory = ch;
+            var gh = gpuHistory.slice(); gh.push(monitor.gpuUsage); if(gh.length>60) gh.shift(); gpuHistory = gh;
         } 
     }
 
