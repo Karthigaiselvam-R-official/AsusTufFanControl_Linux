@@ -8,6 +8,7 @@
 #include <QDebug>
 #include <QFont>
 #include <QSurfaceFormat>
+#include <QSettings>
 #include "src/FanController.h"
 #include "src/SystemStatsMonitor.h"
 #include "src/AuraController.h"
@@ -60,6 +61,28 @@ int main(int argc, char *argv[])
     // Performance: Force hardware OpenGL rendering (prevents software fallback)
     qputenv("QSG_RENDER_LOOP", "basic");  // Use basic render loop for stability
     qputenv("QT_QUICK_BACKEND", "");  // Use default (OpenGL) not software
+
+    // Fix: Suppress ALL session DBus access for a root process.
+    //
+    // Root cause of warnings:
+    //   Qt6 tries to connect to org.freedesktop.portal.Settings (color scheme),
+    //   org.freedesktop.portal.Background (app ID), and QSettings DBus backend.
+    //   Previous fix forwarded the user's session bus — but the bus security
+    //   policy REJECTS root connections, producing "NoReply" hangs (worse than
+    //   the original "FileNotFound" error, because "NoReply" blocks for a timeout).
+    //
+    // Correct approach:
+    //   Unset DBUS_SESSION_BUS_ADDRESS entirely. Qt then fails instantly
+    //   with "no socket" rather than hanging for a reply that never comes.
+    //   Combine with QT_NO_XDG_DESKTOP_PORTAL (already set) and
+    //   an empty QT_QPA_PLATFORMTHEME to prevent all portal probes.
+    qunsetenv("DBUS_SESSION_BUS_ADDRESS");
+    qputenv("QT_NO_XDG_DESKTOP_PORTAL", "1");
+    qputenv("QT_QPA_PLATFORMTHEME", "");  // Disable GTK theme → no portal probes
+
+    // Use IniFormat so QSettings writes to ~/.config/AsusTuf/FanControl.ini
+    // instead of attempting org.freedesktop.portal.Settings DBus calls.
+    QSettings::setDefaultFormat(QSettings::IniFormat);
     
     // Install Security Handler
     qInstallMessageHandler(secureMessageHandler);
@@ -84,6 +107,12 @@ int main(int argc, char *argv[])
     // Fix: Set Identity for consistent QSettings location
     app.setOrganizationName("AsusTuf");
     app.setApplicationName("FanControl");
+
+    // Fix: Provide the .desktop file basename as the stable App ID.
+    // Qt uses this to form a unique DBus name. Without it, Qt guesses
+    // an ID from the binary name, which can collide across sessions
+    // if the portal is somehow attempted (e.g., on future non-root runs).
+    app.setDesktopFileName("asus-tuf-fan-control");
 
     // i18n Fix: Load Translations
     QTranslator translator;
