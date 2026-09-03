@@ -47,6 +47,7 @@ if [ ! -f /bin/ec_probe ]; then
 #include <unistd.h>
 #include <sys/io.h>
 #include <string.h>
+#include <stdint.h>
 
 #define EC_DATA 0x62
 #define EC_SC 0x66
