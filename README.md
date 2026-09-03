@@ -117,27 +117,36 @@ Ubuntu • Fedora • Arch Linux • Kali Linux • Manjaro • Pop!_OS
 |-------------|---------|
 | **OS** | Linux (Kernel 5.4+) |
 | **Hardware** | ASUS TUF / ROG / Strix Gaming Laptop |
-| **Modules** | `asus_wmi`, `asus_nb_wmi` (auto-loaded) |
-| **Dependencies** | Qt6, CMake, GCC |
+| **Modules** | `asus_wmi`, `asus_nb_wmi`, `acpi_call` (for 2nd fan) |
+| **Dependencies** | Qt6, CMake, GCC, `acpi-call-dkms` |
 
 ---
 
 ## 📥 Installation
 
-### 1️⃣ Clone the Repository
+### 1️⃣ Install Hardware Prerequisites (Important for Dual Fans)
+To ensure the application can detect and control secondary fans (especially on Zenbooks), install the `acpi_call` module:
+```bash
+sudo apt update
+sudo apt install acpi-call-dkms
+sudo modprobe acpi_call
+```
+> **Note:** If `modprobe` fails with "Operation not permitted" or "Key was rejected", you must **disable Secure Boot** in your BIOS for the custom module to load.
+
+### 2️⃣ Clone the Repository
 ```bash
 git clone https://github.com/Karthigaiselvam-R-official/AsusTufFanControl_Linux.git
 cd AsusTufFanControl_Linux
 ```
 
-### 2️⃣ Run Setup Script
+### 3️⃣ Run Setup Script
 ```bash
 chmod +x setup.sh
 sudo ./setup.sh
 ```
 > This installs dependencies, builds `ec_probe`, configures polkit, and sets up desktop integration.
 
-### 3️⃣ Build the Application
+### 4️⃣ Build the Application
 ```bash
 mkdir build && cd build
 cmake .. 
@@ -145,7 +154,7 @@ cmake ..
 make -j$(nproc)
 ```
 
-### 4️⃣ Install the Binary
+### 5️⃣ Install the Binary
 ```bash
 sudo cp ./AsusTufFanControl_Linux /opt/asus-tuf-fan-control/
 ```
@@ -160,10 +169,10 @@ A password prompt will appear, then the app runs with elevated privileges.
 
 ### 💻 Terminal
 ```bash
-sudo /opt/asus-tuf-fan-control/AsusTufFanControl_Linux
+sudo -E /opt/asus-tuf-fan-control/AsusTufFanControl_Linux
 ```
 
-> **Note:** Root privileges are required for EC/ACPI hardware access.
+> **Note:** The `-E` flag is required to preserve your DBus user session (fixes UI and setting issues). Root privileges are required for EC/ACPI hardware access.
 
 ---
 
