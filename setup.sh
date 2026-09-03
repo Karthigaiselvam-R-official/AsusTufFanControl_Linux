@@ -28,6 +28,7 @@ apt-get install -y \
     git \
     linux-headers-$(uname -r) \
     dkms \
+    acpi-call-dkms \
     acpi \
     lm-sensors \
     i2c-tools
@@ -153,6 +154,7 @@ modprobe asus_wmi 2>/dev/null || true
 # Load required modules
 modprobe coretemp
 modprobe i2c-dev
+modprobe acpi_call 2>/dev/null || true
 
 echo "ASUS Fan Control: System prepared"
 EOF
