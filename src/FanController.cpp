@@ -5,6 +5,8 @@
 #include <QProcess>
 #include <QDebug>
 #include <QThread>
+#include <sys/io.h>
+#include <unistd.h>
 
 FanController::FanController(QObject *parent) 
     : QObject(parent), 
@@ -110,51 +112,86 @@ bool FanController::initializeController()
 
 void FanController::detectACPIMethods()
 {
-    qInfo() << "Detecting ACPI fan control methods...";
+    qInfo() << "Detecting ACPI fan control methods dynamically...";
     
-    // Common ASUS ACPI paths for Fan Control (SFNV = Set Fan Value)
-    // These paths are specific to ASUS TUF/ROG motherboards
-    QStringList testPaths = {
-        "\\_SB.PCI0.LPCB.EC0.SFNV",  // Most common on TUF FX506
-        "\\_SB.PCI0.SBRG.EC0.SFNV",  // Alternative chipset path
-        "\\_SB.PCI0.LPCB.EC.SFNV",   // Generic ASUS
-        "\\_SB.PCI0.SBRG.EC.SFNV",
-        "\\_SB.ATKD.QMOD",            // Older ATK Method
-        // "\\_SB.ATKD.SPLV",         // REMOVED: Controls Keyboard Backlight, not Fans
-        "\\_SB.PCI0.LPCB.EC0.ST98",  // Specific to some TUF models
-        "\\_SB.PCI0.SBRG.EC0.ST98",
-        // Newer TUF Models (2021+)
-        "\\_SB_.PCI0.LPCB.EC0.VPC0.SFNV",
-        "\\_SB.AMW0.SFNV",
-        "\\_SB.PCI0.SBRG.EC0.FANC",
-        "\\_SB.PCI0.LPCB.EC0.FANC",
-        "\\_SB.PCI0.LPCB.EC0.FANL",
-        "\\_SB.PCI0.SBRG.EC0.FANL",
-        "\\_SB.PCI0.LPCB.EC.FANL"
+    QStringList prefixes;
+    
+    // Dynamically find EC and ASUS specific base paths from sysfs
+    QDir acpiDir("/sys/bus/acpi/devices");
+    if (acpiDir.exists()) {
+        QStringList devices = acpiDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QString& dev : devices) {
+            // PNP0C09 = Embedded Controller, ASUSxxxx = ASUS WMI/ATK
+            if (dev.startsWith("PNP0C09") || dev.startsWith("ASUS") || dev.startsWith("ATK")) {
+                QFile pathFile(acpiDir.absoluteFilePath(dev) + "/path");
+                if (pathFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                    QString acpiPath = QTextStream(&pathFile).readAll().trimmed();
+                    if (!acpiPath.isEmpty()) {
+                        // Some paths have trailing _, e.g., \_SB_.PC00.LPCB.EC0_
+                        // acpi_call expects backslash for root, so ensure it starts with a backslash
+                        if (!acpiPath.startsWith("\\")) {
+                            acpiPath = "\\" + acpiPath;
+                        }
+                        if (!prefixes.contains(acpiPath)) {
+                            prefixes.append(acpiPath);
+                            qInfo() << "Discovered dynamic ACPI base:" << acpiPath;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Add known hardcoded fallbacks in case sysfs detection is incomplete
+    QStringList fallbackPrefixes = {
+        "\\_SB.PCI0.LPCB.EC0",
+        "\\_SB.PCI0.SBRG.EC0",
+        "\\_SB.PCI0.LPCB.EC",
+        "\\_SB.PCI0.SBRG.EC",
+        "\\_SB_.PCI0.LPCB.EC0.VPC0",
+        "\\_SB.AMW0",
+        "\\_SB.ATKD"
     };
+    
+    for (const QString& p : fallbackPrefixes) {
+        if (!prefixes.contains(p)) prefixes.append(p);
+    }
+    
+    // Common ASUS fan method suffixes
+    QStringList suffixes = { "SFNV", "FANC", "FANL", "ST98", "QMOD" };
+    
+    QStringList testPaths;
+    for (const QString& prefix : prefixes) {
+        for (const QString& suffix : suffixes) {
+            testPaths.append(prefix + "." + suffix);
+        }
+    }
     
     m_acpiPaths.clear();
     
     for (const QString &path : testPaths) {
-        // Test if the method exists by sending a harmless command (Fan 0 speed 0)
-        // We look for a response that isn't "AE_NOT_FOUND"
+        // Test if the method exists by sending a harmless command
         QString testCmd;
         if (path.contains("SPLV")) {
-            // For SPLV, test with a valid argument like 0xA (10)
             testCmd = QString("%1 0xA").arg(path);
         } else if (path.contains("FANL")) {
-            // FANL is usually "Fan Level". Test with a safe value like 0 or 50.
-            // Often it takes 1 arg.
             testCmd = QString("%1 50").arg(path); 
         } else if (path.contains("SFNV") || path.contains("FANC") || path.contains("ST98")) {
-            // For SFNV/FANC/ST98, test with 0 0 (index 0, value 0)
             testCmd = QString("%1 0 0").arg(path);
         } else {
-            // For other methods like QMOD, just test existence without args
             testCmd = path;
         }
 
         QString result = callACPI(testCmd);
+        
+        // If 2-argument SFNV failed, try 1-argument (some TUF models expect just the value)
+        if (result.contains("Error") && (path.contains("SFNV") || path.contains("FANC"))) {
+            QString fallbackCmd = QString("%1 0").arg(path);
+            result = callACPI(fallbackCmd);
+            if (!result.contains("Error")) {
+                qInfo() << "Note: Method" << path << "expects 1 argument.";
+            }
+        }
         
         if (!result.contains("Error") && !result.contains("not found")) {
             m_acpiPaths.append(path);
@@ -163,7 +200,7 @@ void FanController::detectACPIMethods()
     }
     
     if (m_acpiPaths.isEmpty()) {
-        qWarning() << "✗ No known ACPI fan control methods found.";
+        qWarning() << "✗ No known ACPI fan control methods found (Tried" << testPaths.size() << "combinations).";
     } else {
         qInfo() << "Using primary ACPI path:" << m_acpiPaths.first();
     }
@@ -200,11 +237,82 @@ QString FanController::callACPI(const QString &command)
     return response;
 }
 
+bool FanController::sendAsusWMICommand(uint32_t dev_id, uint32_t ctrl_param) {
+    if (!QFile::exists("/sys/kernel/debug/asus-nb-wmi/dev_id")) return false;
+    
+    QFile fId("/sys/kernel/debug/asus-nb-wmi/dev_id");
+    if (fId.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&fId);
+        out << QString("0x%1").arg(dev_id, 0, 16);
+        fId.close();
+    }
+    
+    QFile fParam("/sys/kernel/debug/asus-nb-wmi/ctrl_param");
+    if (fParam.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream out(&fParam);
+        out << ctrl_param;
+        fParam.close();
+    }
+    
+    QFile fDevs("/sys/kernel/debug/asus-nb-wmi/devs");
+    if (fDevs.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&fDevs);
+        QString res = in.readAll();
+        fDevs.close();
+        if (res.contains("0x1") || res.contains("0x0")) return true;
+    }
+    return false;
+}
+
+bool FanController::sendAsusECCommand(uint8_t b1, uint8_t b2, uint8_t b3) {
+    if (ioperm(0x62, 1, 1) != 0 || ioperm(0x66, 1, 1) != 0) {
+        qWarning() << "Failed to get EC port permissions. Application must run as root!";
+        return false;
+    }
+    auto clearOBF = []() {
+        while (inb(0x66) & 1) { inb(0x62); usleep(10); }
+    };
+    auto waitIBE = []() -> bool {
+        for (int i = 0; i < 100000; i++) {
+            if ((inb(0x66) & 2) == 0) return true;
+            usleep(10);
+        }
+        return false;
+    };
+    clearOBF();
+    if (!waitIBE()) return false;
+    outb(0xDD, 0x66);
+    if (!waitIBE()) return false;
+    outb(b1, 0x62);
+    if (!waitIBE()) return false;
+    outb(b2, 0x62);
+    if (!waitIBE()) return false;
+    outb(b3, 0x62);
+    usleep(1000);
+    clearOBF();
+    return true;
+}
+
 bool FanController::setFanSpeedACPI(int percentage)
 {
     if (m_acpiPaths.isEmpty()) return false;
     
     QString acpiPath = m_acpiPaths.first();
+    
+    // BLACKLIST: The FANL method on TUF models returns success but physically jams the EC
+    // and causes 0 RPM stalls. We must return false so it gracefully falls back to the Thermal Policy mapper.
+    if (acpiPath.contains("FANL")) {
+        // Silently skip to avoid terminal spam every 1.5 seconds
+        return false;
+    }
+    
+    // Attempt to unlock manual control in the BIOS by setting thermal policy to 3 (Manual/Custom)
+    if (m_hasThermalPolicy) {
+        writeToSysfs(m_wmiBasePath + "/throttle_thermal_policy", 3);
+    }
+    
+    // Removed asynchronous writeECRegister call to prevent I/O port collision with sendAsusECCommand
+    
     bool success = true;
 
     // Handle SPLV (0-10 Scale)
@@ -224,20 +332,59 @@ bool FanController::setFanSpeedACPI(int percentage)
             success = false;
         }
     } 
-    // Handle FANL (Typical ASUS Fan Level)
+    // Handle FANL (Typical ASUS Fan Level) - OVERRIDDEN WITH NATIVE WMI
     else if (acpiPath.contains("FANL")) {
-        // FANL usually expects 0-100 or 0-255. 
-        // Given it's a "Level", let's assume 0-100 first? 
-        // Actually on ASUS N-series, FANL is often 0-255.
-        // Let's safe bet: 255 scale.
-        int val = static_cast<int>((percentage / 100.0) * 255);
-        if (percentage >= 100) val = 255;
-        if (percentage > 0 && val == 0) val = 1;
-
-        // FANL(Value) - Single Fan Control (usually controlling both tied together)
-        QString cmd = QString("%1 %2").arg(acpiPath).arg(val);
-        QString res = callACPI(cmd);
-        if (res.contains("Error")) success = false;
+        // 1. Map 0-100% to 0-255 PWM
+        unsigned char pwm = static_cast<unsigned char>((percentage / 100.0) * 255);
+        if (percentage >= 100) pwm = 255;
+        if (percentage <= 0) pwm = 0;
+        
+        // Strategy A: Native Kernel WMI (The Safest & Best Method)
+        bool wmiSuccess = true;
+        sendAsusWMICommand(0x00120075, 3); // Policy -> Manual
+        
+        if (!sendAsusWMICommand(0x00110013, pwm)) wmiSuccess = false; // CPU Fan
+        if (!sendAsusWMICommand(0x00110014, pwm)) wmiSuccess = false; // GPU Fan
+        
+        if (wmiSuccess) {
+            qInfo() << "Native Asus WMI Override applied for PWM:" << pwm;
+            success = true;
+        } else {
+            // Strategy B: Fallback to Raw EC Hardware injection
+            qWarning() << "WMI Failed. Falling back to Raw EC Injection.";
+            sendAsusECCommand(0x82, 0x31, 0x01); 
+            usleep(50000); 
+            
+            sendAsusECCommand(0x82, 0x32, 0x00); 
+            usleep(20000); 
+            sendAsusECCommand(0x82, 0x35, pwm);  
+            usleep(20000);
+            
+            sendAsusECCommand(0x82, 0x32, 0x01); 
+            usleep(20000); 
+            sendAsusECCommand(0x82, 0x35, pwm);  
+            usleep(20000);
+            
+            success = true;
+        }
+    }
+    // Handle FANC and ST98 which expect 0-100 directly
+    else if (acpiPath.contains("FANC") || acpiPath.contains("ST98")) {
+        int val = percentage;
+        if (val < 1) val = 1;
+        
+        QString cmdCPU = QString("%1 0 %2").arg(acpiPath).arg(val);
+        QString resultCPU = callACPI(cmdCPU);
+        if (resultCPU.contains("Error")) {
+            qWarning() << "ACPI CPU Fan Error:" << resultCPU << "Command:" << cmdCPU;
+            success = false;
+        }
+        
+        QString cmdGPU = QString("%1 1 %2").arg(acpiPath).arg(val);
+        QString resultGPU = callACPI(cmdGPU);
+        if (resultGPU.contains("Error")) {
+            qWarning() << "GPU Fan ACPI call failed, but CPU succeeded.";
+        }
     }
     // Handle Standard 0-255 methods (SFNV, FANL, etc.)
     else {
@@ -258,13 +405,30 @@ bool FanController::setFanSpeedACPI(int percentage)
         QString resultCPU = callACPI(cmdCPU);
         
         if (resultCPU.contains("Error")) {
-            success = false;
+            // Fallback for models where SFNV expects only 1 argument (Value) instead of (Index, Value)
+            QString fallbackCmdCPU = QString("%1 %2").arg(acpiPath).arg(fanValue);
+            resultCPU = callACPI(fallbackCmdCPU);
+            if (resultCPU.contains("Error")) {
+                qWarning() << "ACPI CPU Fan Error:" << resultCPU << "Command:" << fallbackCmdCPU;
+                success = false;
+            } else {
+                qInfo() << "1-Arg ACPI Fallback Succeeded for CPU:" << fallbackCmdCPU;
+            }
         }
         
-        // Set GPU Fan (Index 1)
-        QString cmdGPU = QString("%1 1 %2").arg(acpiPath).arg(fanValue);
-        QString resultGPU = callACPI(cmdGPU);
-        if (resultGPU.contains("Error")) success = false; // GPU might fail on some models, not critical if CPU works
+        // Set GPU Fan (Index 1) - Only if CPU succeeded. 
+        if (success) {
+            QString cmdGPU = QString("%1 1 %2").arg(acpiPath).arg(fanValue);
+            QString resultGPU = callACPI(cmdGPU);
+            if (resultGPU.contains("Error")) {
+                // Try 1-arg fallback for GPU too (though some models only have 1 fan node for both)
+                QString fallbackCmdGPU = QString("%1 %2").arg(acpiPath).arg(fanValue);
+                resultGPU = callACPI(fallbackCmdGPU);
+                if (resultGPU.contains("Error")) {
+                    qWarning() << "GPU Fan ACPI call failed, but CPU succeeded.";
+                }
+            }
+        }
     }
     
     return success;
@@ -290,13 +454,23 @@ void FanController::setFanSpeed(int percentage)
     
     bool success = false;
     
-    // REVISED STRATEGY: Smart Mode Mapper
-    // Hardware is locked, so we map slider to Thermal Policies (Performance Profiles).
+    // Primary Strategy: ACPI Direct Control
+    // This will execute safely on Zenbooks (SFNV, FANC) but will gracefully fail on TUF (FANL)
+    if (m_useACPICalls && !m_acpiPaths.isEmpty()) {
+        success = setFanSpeedACPI(percentage);
+        if (success) {
+            setStatusMessage(QString("Manual (ACPI): %1%").arg(percentage));
+            emit statsUpdated();
+        }
+    }
+    
+    // REVISED STRATEGY: Smart Mode Mapper (Fallback)
+    // If hardware is locked or ACPI fails, map slider to Thermal Policies (Performance Profiles).
     // 0-33%   -> Silent (Policy 2)
     // 34-66%  -> Balanced (Policy 0)
     // 67-100% -> Turbo (Policy 1)
     
-    if (m_hasThermalPolicy) {
+    if (!success && m_hasThermalPolicy) {
         int targetPolicy = 0; // Default to Balanced (Medium)
 
         if (percentage < 34) {
@@ -365,6 +539,13 @@ void FanController::enforceManualMode()
     if (m_manualMode) {
         // Enforce the Mode Selection
         // This timer ensures the BIOS doesn't switch back to a "Default" mode automatically.
+        
+        // Strategy 1: Re-enforce ACPI direct control
+        // Will succeed on Zenbook, gracefully fail on TUF F15
+        if (m_useACPICalls && !m_acpiPaths.isEmpty()) {
+            setFanSpeedACPI(m_currentFanSpeed);
+        }
+        // Strategy 2: Fallback to Thermal Policy
         if (m_hasThermalPolicy) {
             int targetPolicy = 0; // Default Balanced
             
@@ -378,13 +559,18 @@ void FanController::enforceManualMode()
                 writeToSysfs(m_wmiBasePath + "/throttle_thermal_policy", targetPolicy);
                 // qInfo() << "Re-enforcing Policy:" << targetPolicy;
             }
+            
+            // Re-enforce MAX OVERRIDE if at 100%
+            if (m_currentFanSpeed == 100 && !m_wmiHwmonPath.isEmpty()) {
+                writeToSysfs(m_wmiHwmonPath + "/pwm1_enable", 0);
+                writeToSysfs(m_wmiHwmonPath + "/pwm2_enable", 0);
+            }
         }
-
     }
     
     // Safety Watchdog: If in manual mode > 80% but RPM is 0 for too long, revert!
+    static int stallCounter = 0;
     if (m_manualMode && m_currentFanSpeed > 80 && getCpuFanRpm() == 0) {
-        static int stallCounter = 0;
         stallCounter++;
         if (stallCounter > 10) { // ~15 seconds
             qWarning() << "Safety Watchdog: Fans stalled! Reverting to Auto.";
@@ -392,10 +578,8 @@ void FanController::enforceManualMode()
             stallCounter = 0;
         }
     } else {
-        static int stallCounter = 0;
         stallCounter = 0;
     }
-
 }
 
 void FanController::enableAutoMode()
@@ -405,6 +589,9 @@ void FanController::enableAutoMode()
     m_enforcementTimer->stop();
     
     qInfo() << "Reverting to Auto Mode...";
+    
+    // Disable EC Fan Test Mode
+    sendAsusECCommand(0x82, 0x31, 0x00);
     
     // 1. Reset ACPI (Usually writing 0 or specific auto arg)
     if (m_useACPICalls && !m_acpiPaths.isEmpty()) {

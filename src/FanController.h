@@ -76,6 +76,10 @@ private:
     QString callACPI(const QString &command);
     bool setFanSpeedACPI(int percentage);
     
+    // Direct Hardware Injection
+    bool sendAsusWMICommand(uint32_t dev_id, uint32_t ctrl_param);
+    bool sendAsusECCommand(uint8_t b1, uint8_t b2, uint8_t b3);
+    
     // File I/O Helpers
     int readIntFromFile(QString path);
     bool writeToSysfs(const QString &path, int value);
