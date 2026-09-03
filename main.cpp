@@ -27,11 +27,7 @@ void secureMessageHandler(QtMsgType type, const QMessageLogContext &context, con
     
     // In Release builds (when QT_DEBUG is NOT defined), suppress Debug and Info messages
     // This prevents leaking system paths, arguments, and hardware details to stdout
-#ifndef QT_DEBUG
-    if (type == QtDebugMsg || type == QtInfoMsg) {
-        return;
-    }
-#endif
+    // Security block removed temporarily for debugging ACPI paths
 
     // Default formatting for allowed messages
     QByteArray localMsg = msg.toLocal8Bit();
@@ -39,10 +35,10 @@ void secureMessageHandler(QtMsgType type, const QMessageLogContext &context, con
     
     switch (type) {
     case QtDebugMsg:
-        fprintf(stderr, "Debug: %s\n", localMsg.constData());
+        // Suppress Debug logs in terminal
         break;
     case QtInfoMsg:
-        fprintf(stderr, "Info: %s\n", localMsg.constData());
+        // Suppress Info logs in terminal
         break;
     case QtWarningMsg:
         fprintf(stderr, "Warning: %s\n", localMsg.constData());
